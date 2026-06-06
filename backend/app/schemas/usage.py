@@ -26,9 +26,10 @@ class UsageStatsResponse(BaseModel):
 class UsageRecordResponse(BaseModel):
     id: int
     model: str
-    request_tokens: int = Field(..., alias="requestTokens")
-    response_tokens: int = Field(..., alias="responseTokens")
-    total_tokens: int = Field(..., alias="totalTokens")
+    input_tokens: int = Field(..., alias="inputTokens")
+    cache_read_tokens: int = Field(..., alias="cacheReadTokens")
+    cache_creation_tokens: int = Field(..., alias="cacheCreationTokens")
+    output_tokens: int = Field(..., alias="outputTokens")
     cost_cents: int = Field(..., alias="costCents")
     created_at: datetime = Field(..., alias="createdAt")
 
