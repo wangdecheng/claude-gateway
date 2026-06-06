@@ -72,10 +72,10 @@ def override_admin_auth():
 
 
 async def _setup_test_data(client: AsyncClient) -> dict:
-    """Create a provider and model for delete testing.
+    """Create a provider, model, and channel for delete testing.
 
-    Note: create_model auto-creates a default ChannelConfig, so we fetch
-    the channel_id from the channel list rather than creating a separate one.
+    Model and channel are now created separately — models no longer carry
+    provider info or auto-create channels.
 
     Returns dict with {provider_id, model_id, channel_id}.
     """
@@ -92,27 +92,31 @@ async def _setup_test_data(client: AsyncClient) -> dict:
     assert resp.status_code == 201, f"Provider create failed: {resp.text}"
     provider_id = resp.json()["id"]
 
-    # Create model (auto-creates a default ChannelConfig)
+    # Create model (no provider dependency)
     resp = await client.post(
         "/api/admin/models",
         json={
             "publicName": "Test Model Delete",
-            "providerId": provider_id,
-            "providerModelId": "test-model-delete",
             "inputPrice": 10000,
             "outputPrice": 20000,
-            "multiplier": 1.0,
         },
     )
     assert resp.status_code == 201, f"Model create failed: {resp.text}"
     model_id = resp.json()["id"]
 
-    # Get the auto-created channel
-    list_resp = await client.get("/api/admin/channels")
-    channels = list_resp.json()
-    model_channels = [c for c in channels if c["modelId"] == model_id]
-    assert len(model_channels) >= 1, "Expected at least one channel for the model"
-    channel_id = model_channels[0]["id"]
+    # Create channel separately (with provider_model_id)
+    resp = await client.post(
+        "/api/admin/channels",
+        json={
+            "modelId": model_id,
+            "providerId": provider_id,
+            "providerModelId": "test-model-delete",
+            "multiplier": 1.0,
+            "isDefault": True,
+        },
+    )
+    assert resp.status_code == 201, f"Channel create failed: {resp.text}"
+    channel_id = resp.json()["id"]
 
     return {"provider_id": provider_id, "model_id": model_id, "channel_id": channel_id}
 
@@ -172,8 +176,8 @@ async def test_delete_model_blocked_by_channels():
 
 
 @pytest.mark.asyncio
-async def test_delete_provider_blocked_by_models():
-    """Cannot delete a provider that still has models."""
+async def test_delete_provider_blocked_by_channels():
+    """Cannot delete a provider that still has channel configs referencing it."""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         data = await _setup_test_data(client)
