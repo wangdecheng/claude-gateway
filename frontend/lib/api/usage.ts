@@ -22,9 +22,10 @@ export interface UsageStats {
 export interface UsageRecord {
   id: number;
   model: string;
-  requestTokens: number;
-  responseTokens: number;
-  totalTokens: number;
+  inputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  outputTokens: number;
   costCents: number;
   createdAt: string;
 }
