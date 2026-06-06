@@ -32,29 +32,40 @@ MIN_BALANCE_THRESHOLD_CENTS = 100  # ¥1.00
 
 
 def _extract_usage_from_sse_line(line: str) -> dict[str, int] | None:
-    """Parse usage from a message_delta data line in the SSE stream.
-
-    The provider splits SSE events into individual lines; this function
-    matches a ``data: {..., "type": "message_delta", ...}`` line and
-    extracts usage fields.
-    """
+    """Parse usage from message_start / message_delta data lines in the SSE stream."""
     if not line.startswith("data:"):
         return None
     try:
         payload = json.loads(line.removeprefix("data:").strip())
     except json.JSONDecodeError:
         return None
-    if payload.get("type") != "message_delta":
+
+    event_type = payload.get("type")
+    if event_type not in ("message_start", "message_delta"):
         return None
-    usage = payload.get("usage")
-    if not isinstance(usage, dict):
-        return None
-    return {
-        "input_tokens": usage.get("input_tokens", 0),
-        "output_tokens": usage.get("output_tokens", 0),
-        "cache_read_input_tokens": usage.get("cache_read_input_tokens", 0),
-        "cache_creation_input_tokens": usage.get("cache_creation_input_tokens", 0),
+
+    result = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_read_tokens": 0,
+        "cache_creation_tokens": 0,
     }
+
+    if event_type == "message_start":
+        msg = payload.get("message", {})
+        usage = msg.get("usage", {}) if isinstance(msg, dict) else {}
+        result["input_tokens"] = usage.get("input_tokens", 0)
+        result["cache_read_tokens"] = usage.get("cache_read_input_tokens", 0)
+        result["cache_creation_tokens"] = usage.get("cache_creation_input_tokens", 0)
+    elif event_type == "message_delta":
+        usage = payload.get("usage", {})
+        if isinstance(usage, dict):
+            result["output_tokens"] = usage.get("output_tokens", 0)
+            # DeepSeek provider normalizer may inject cache fields into delta events
+            result["cache_read_tokens"] = usage.get("cache_read_input_tokens", 0)
+            result["cache_creation_tokens"] = usage.get("cache_creation_input_tokens", 0)
+
+    return result
 
 
 async def _settle_billing(
@@ -292,15 +303,18 @@ async def create_message(
                 provider_body,
                 request_id=f"req_{body.model}",
             ):
-                # Parse usage from message_delta data lines
+                # Parse usage from message_start / message_delta data lines
                 usage = _extract_usage_from_sse_line(chunk)
                 if usage:
-                    accumulated_usage["input_tokens"] = usage["input_tokens"]
-                    accumulated_usage["output_tokens"] = usage["output_tokens"]
-                    accumulated_usage["cache_read_tokens"] = usage["cache_read_input_tokens"]
-                    accumulated_usage["cache_creation_tokens"] = (
-                        usage["cache_creation_input_tokens"]
-                    )
+                    for key in (
+                        "input_tokens",
+                        "output_tokens",
+                        "cache_read_tokens",
+                        "cache_creation_tokens",
+                    ):
+                        val = usage.get(key, 0)
+                        if val:
+                            accumulated_usage[key] = val
                 if _remap_model:
                     yield chunk.replace(_provider_model, _original_model)
                 else:
