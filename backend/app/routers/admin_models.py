@@ -18,13 +18,9 @@ def _format_admin_model(result: dict) -> dict:
     return {
         "id": result["id"],
         "publicName": result["public_name"],
-        "providerId": result["provider_id"],
-        "providerName": result["provider_name"],
-        "providerModelId": result["provider_model_id"],
         "description": result.get("description"),
         "inputPrice": result["input_price"],
         "outputPrice": result["output_price"],
-        "multiplier": result["multiplier"],
         "status": result["status"],
         "createdAt": result["created_at"],
     }
@@ -53,16 +49,13 @@ async def create_model(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Add a new model with default channel config."""
+    """Add a new model."""
     result = await model_service.create_model(
         db,
         public_name=data.public_name,
-        provider_id=data.provider_id,
-        provider_model_id=data.provider_model_id,
         description=data.description,
         input_price=data.input_price,
         output_price=data.output_price,
-        multiplier=data.multiplier,
     )
     await db.commit()
     return _format_admin_model(result)
@@ -78,17 +71,14 @@ async def update_model(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Update model fields and optionally the default channel multiplier."""
+    """Update model fields."""
     result = await model_service.update_model(
         db,
         model_id,
         public_name=data.public_name,
-        provider_id=data.provider_id,
-        provider_model_id=data.provider_model_id,
         description=data.description,
         input_price=data.input_price,
         output_price=data.output_price,
-        multiplier=data.multiplier,
     )
     await db.commit()
     return _format_admin_model(result)
