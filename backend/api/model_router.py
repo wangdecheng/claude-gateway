@@ -73,7 +73,7 @@ class ModelRouter:
         )
 
     async def resolve_from_db(self, model_name: str) -> ResolvedModel:
-        """Resolve a model name using the database (model → provider → channel)."""
+        """Resolve a model name using the database (model → channel → provider)."""
         if self._db is None:
             return self.resolve(model_name)
 
@@ -83,7 +83,7 @@ class ModelRouter:
         from app.models.model import ChannelConfig, Model
         from app.models.provider import Provider
 
-        # Look up model by public_name
+        # 1. Look up model by public_name
         result = await self._db.execute(
             select(Model).where(Model.public_name == model_name, Model.status == "active")
         )
@@ -93,32 +93,50 @@ class ModelRouter:
             # Fall back to settings-based resolution
             return self.resolve(model_name)
 
-        # Look up provider
+        # 2. Look up default channel (or lowest-multiplier fallback)
         result = await self._db.execute(
-            select(Provider).where(Provider.id == model.provider_id, Provider.status == "active")
+            select(ChannelConfig).where(
+                ChannelConfig.model_id == model.id,
+                ChannelConfig.status == "active",
+                ChannelConfig.is_default == True,
+            )
+        )
+        channel = result.scalar_one_or_none()
+
+        if channel is None:
+            # Fallback: lowest multiplier active channel
+            result = await self._db.execute(
+                select(ChannelConfig).where(
+                    ChannelConfig.model_id == model.id,
+                    ChannelConfig.status == "active",
+                ).order_by(ChannelConfig.multiplier.asc()).limit(1)
+            )
+            channel = result.scalar_one_or_none()
+
+        if channel is None:
+            return self.resolve(model_name)
+
+        # 3. Look up provider
+        result = await self._db.execute(
+            select(Provider).where(
+                Provider.id == channel.provider_id,
+                Provider.status == "active",
+            )
         )
         provider = result.scalar_one_or_none()
 
         if provider is None:
             return self.resolve(model_name)
 
-        # Look up default channel
-        result = await self._db.execute(
-            select(ChannelConfig).where(
-                ChannelConfig.model_id == model.id, ChannelConfig.status == "active"
-            )
-        )
-        channel = result.scalar_one_or_none()
-
         return ResolvedModel(
             original_model=model_name,
             provider_id=provider.name,
-            provider_model=model.provider_model_id,
-            provider_model_ref=f"{provider.name}/{model.provider_model_id}",
+            provider_model=channel.provider_model_id,
+            provider_model_ref=f"{provider.name}/{channel.provider_model_id}",
             thinking_enabled=self._settings.enable_model_thinking,
             db_model_id=model.id,
             db_provider_id=provider.id,
-            db_channel_id=channel.id if channel else None,
+            db_channel_id=channel.id,
         )
 
     def _direct_provider_model(self, model_name: str) -> tuple[str | None, str | None, bool | None]:
