@@ -22,7 +22,6 @@ def _normalize_default_channels(channels: list[dict]) -> list[dict]:
 
     default_channels = [channel for channel in channels if channel["is_default"]]
     if default_channels:
-        # Deterministic: lowest-multiplier default wins when multiple exist
         default_channels.sort(key=lambda c: c["multiplier"])
         chosen_default_id = default_channels[0]["id"]
         for channel in channels:
@@ -41,7 +40,6 @@ async def list_active_models(db: AsyncSession) -> list[dict]:
     Each model includes a list of channels (provider_name, multiplier, is_default).
     Models with status != 'active' are excluded.
     """
-    # Fetch all active models
     model_result = await db.execute(
         select(Model).where(Model.status == "active").order_by(Model.public_name)
     )
@@ -50,7 +48,6 @@ async def list_active_models(db: AsyncSession) -> list[dict]:
     if not models:
         return []
 
-    # Fetch all channels for these models in one query
     model_ids = [m.id for m in models]
     channel_result = await db.execute(
         select(ChannelConfig, Provider.name)
@@ -64,7 +61,6 @@ async def list_active_models(db: AsyncSession) -> list[dict]:
     )
     channel_rows = channel_result.all()
 
-    # Group channels by model_id
     channels_by_model: dict[int, list[dict]] = {}
     for ch_config, provider_name in channel_rows:
         channels_by_model.setdefault(ch_config.model_id, []).append(
@@ -77,13 +73,6 @@ async def list_active_models(db: AsyncSession) -> list[dict]:
             }
         )
 
-    default_counts: dict[int, int] = {}
-    for channels in channels_by_model.values():
-        for channel in channels:
-            if channel["is_default"]:
-                default_counts[channel["model_id"]] = default_counts.get(channel["model_id"], 0) + 1
-
-    # Assemble response
     result = []
     for model in models:
         channels = channels_by_model.get(model.id, [])
@@ -124,15 +113,6 @@ async def get_model_detail(db: AsyncSession, model_id: int) -> dict:
     if not model:
         raise AppException(status_code=404, error="模型不存在", code="MODEL_NOT_FOUND")
 
-    # Get native provider name
-    provider_result = await db.execute(
-        select(Provider.name).where(Provider.id == model.provider_id, Provider.status == "active")
-    )
-    provider_name = provider_result.scalar_one_or_none()
-    if not provider_name:
-        raise AppException(status_code=404, error="模型不存在", code="MODEL_NOT_FOUND")
-
-    # Get all channels
     channel_result = await db.execute(
         select(ChannelConfig, Provider.name)
         .join(Provider, ChannelConfig.provider_id == Provider.id)
@@ -164,8 +144,6 @@ async def get_model_detail(db: AsyncSession, model_id: int) -> dict:
     return {
         "id": model.id,
         "public_name": model.public_name,
-        "provider_name": provider_name,
-        "provider_model_id": model.provider_model_id,
         "description": model.description,
         "input_price": model.input_price,
         "output_price": model.output_price,
@@ -179,74 +157,41 @@ async def get_model_detail(db: AsyncSession, model_id: int) -> dict:
 
 
 async def list_all_models(db: AsyncSession) -> list[dict]:
-    """Return all models (including inactive) for admin, with provider name, status and default multiplier.
+    """Return all models (including inactive) for admin.
 
-    Sorted by created_at descending. Uses a subquery to avoid duplicate rows
-    when a model has multiple default ChannelConfigs.
+    Sorted by created_at descending. No provider join — provider info is
+    available through the channels endpoint.
     """
-
-    # Correlated scalar subquery: portable across SQLite/PostgreSQL/MySQL.
-    # Picks the lowest default multiplier when multiple defaults exist.
-    default_mult = (
-        select(ChannelConfig.multiplier)
-        .where(
-            ChannelConfig.model_id == Model.id,
-            ChannelConfig.is_default,
-        )
-        .order_by(ChannelConfig.multiplier.asc())
-        .limit(1)
-        .correlate(Model)
-        .scalar_subquery()
-    )
-
     result = await db.execute(
-        select(Model, Provider.name, Provider.status, default_mult)
-        .join(Provider, Model.provider_id == Provider.id)
+        select(Model)
         .where(Model.status != "deleted")
         .order_by(Model.created_at.desc())
     )
-    rows = result.all()
+    models = result.scalars().all()
 
-    result = []
-    for model, provider_name, provider_status, multiplier in rows:
-        if multiplier is None:
-            logger.warning(
-                "Model %s (id=%d) has no default ChannelConfig in admin list",
-                model.public_name,
-                model.id,
-            )
-        result.append(
-            {
-                "id": model.id,
-                "public_name": model.public_name,
-                "provider_id": model.provider_id,
-                "provider_name": provider_name,
-                "provider_status": provider_status,
-                "provider_model_id": model.provider_model_id,
-                "description": model.description,
-                "input_price": model.input_price,
-                "output_price": model.output_price,
-                "multiplier": multiplier if multiplier is not None else 1.0,
-                "status": model.status,
-                "created_at": model.created_at.isoformat(),
-            }
-        )
-    return result
+    return [
+        {
+            "id": model.id,
+            "public_name": model.public_name,
+            "description": model.description,
+            "input_price": model.input_price,
+            "output_price": model.output_price,
+            "status": model.status,
+            "created_at": model.created_at.isoformat(),
+        }
+        for model in models
+    ]
 
 
 async def create_model(
     db: AsyncSession,
     *,
     public_name: str,
-    provider_id: int,
-    provider_model_id: str,
     description: str | None,
     input_price: int,
     output_price: int,
-    multiplier: float,
 ) -> dict:
-    """Create a new model with a default ChannelConfig in a transaction."""
-    # 1. Check public_name uniqueness
+    """Create a new model. No provider or channel configuration — that's done separately."""
     existing = await db.execute(select(Model.id).where(Model.public_name == public_name))
     if existing.scalar_one_or_none():
         raise AppException(
@@ -255,68 +200,23 @@ async def create_model(
             code="MODEL_NAME_EXISTS",
         )
 
-    # 2. Validate multiplier first (cheap validation before DB queries)
-    if multiplier <= 0:
-        raise AppException(
-            status_code=400,
-            error="倍率必须大于 0",
-            code="INVALID_MULTIPLIER",
-        )
-
-    # 3. Validate provider exists and is active
-    provider_result = await db.execute(
-        select(Provider.name, Provider.status).where(Provider.id == provider_id)
-    )
-    provider_row = provider_result.one_or_none()
-    if not provider_row:
-        raise AppException(
-            status_code=400,
-            error="供应商不存在",
-            code="PROVIDER_NOT_FOUND",
-        )
-    provider_name, provider_status = provider_row
-    if provider_status != "active":
-        raise AppException(
-            status_code=400,
-            error="供应商未启用",
-            code="PROVIDER_INACTIVE",
-        )
-
-    # 4. INSERT Model
     model = Model(
         public_name=public_name,
-        provider_id=provider_id,
-        provider_model_id=provider_model_id,
         description=description,
         input_price=input_price,
         output_price=output_price,
         status="active",
     )
     db.add(model)
-    await db.flush()  # Get model.id
-
-    # 5. INSERT default ChannelConfig
-    channel = ChannelConfig(
-        model_id=model.id,
-        provider_id=provider_id,
-        multiplier=multiplier,
-        is_default=True,
-        status="active",
-    )
-    db.add(channel)
     await db.flush()
     await db.refresh(model)
 
     return {
         "id": model.id,
         "public_name": model.public_name,
-        "provider_id": model.provider_id,
-        "provider_name": provider_name,
-        "provider_model_id": model.provider_model_id,
         "description": model.description,
         "input_price": model.input_price,
         "output_price": model.output_price,
-        "multiplier": multiplier,
         "status": model.status,
         "created_at": model.created_at.isoformat(),
     }
@@ -327,21 +227,16 @@ async def update_model(
     model_id: int,
     *,
     public_name: str | None = None,
-    provider_id: int | None = None,
-    provider_model_id: str | None = None,
     description: str | None = None,
     input_price: int | None = None,
     output_price: int | None = None,
-    multiplier: float | None = None,
 ) -> dict:
-    """Update model fields. Optionally update the default channel multiplier."""
-    # Fetch model (including inactive)
+    """Update model fields. No provider or multiplier — those are channel-level concerns."""
     result = await db.execute(select(Model).where(Model.id == model_id))
     model = result.scalar_one_or_none()
     if not model:
         raise AppException(status_code=404, error="模型不存在", code="MODEL_NOT_FOUND")
 
-    # Check public_name uniqueness if changing
     if public_name is not None and public_name != model.public_name:
         existing = await db.execute(
             select(Model.id).where(
@@ -357,27 +252,6 @@ async def update_model(
             )
         model.public_name = public_name
 
-    if provider_id is not None:
-        # Validate new provider exists and is active
-        prov_result = await db.execute(
-            select(Provider.id, Provider.status).where(Provider.id == provider_id)
-        )
-        prov_row = prov_result.one_or_none()
-        if not prov_row:
-            raise AppException(
-                status_code=400,
-                error="供应商不存在",
-                code="PROVIDER_NOT_FOUND",
-            )
-        if prov_row.status != "active":
-            raise AppException(
-                status_code=400,
-                error="供应商未启用",
-                code="PROVIDER_INACTIVE",
-            )
-        model.provider_id = provider_id
-    if provider_model_id is not None:
-        model.provider_model_id = provider_model_id
     if description is not None:
         model.description = description
     if input_price is not None:
@@ -385,58 +259,15 @@ async def update_model(
     if output_price is not None:
         model.output_price = output_price
 
-    # Update default channel multiplier if provided
-    if multiplier is not None:
-        if multiplier <= 0:
-            raise AppException(
-                status_code=400,
-                error="倍率必须大于 0",
-                code="INVALID_MULTIPLIER",
-            )
-        ch_result = await db.execute(
-            select(ChannelConfig).where(
-                ChannelConfig.model_id == model_id,
-                ChannelConfig.is_default,
-            )
-        )
-        default_ch = ch_result.scalar_one_or_none()
-        if not default_ch:
-            raise AppException(
-                status_code=400,
-                error="没有默认渠道可更新倍率",
-                code="NO_DEFAULT_CHANNEL",
-            )
-        default_ch.multiplier = multiplier
-
     await db.flush()
     await db.refresh(model)
-
-    # Fetch provider name and multiplier for response
-    provider_result = await db.execute(
-        select(Provider.name).where(Provider.id == model.provider_id)
-    )
-    provider_name = provider_result.scalar_one_or_none()
-    provider_name = provider_name if provider_name is not None else ""
-
-    mult_result = await db.execute(
-        select(ChannelConfig.multiplier).where(
-            ChannelConfig.model_id == model_id,
-            ChannelConfig.is_default,
-        )
-    )
-    raw_multiplier = mult_result.scalar_one_or_none()
-    current_multiplier = raw_multiplier if raw_multiplier is not None else 1.0
 
     return {
         "id": model.id,
         "public_name": model.public_name,
-        "provider_id": model.provider_id,
-        "provider_name": provider_name,
-        "provider_model_id": model.provider_model_id,
         "description": model.description,
         "input_price": model.input_price,
         "output_price": model.output_price,
-        "multiplier": current_multiplier,
         "status": model.status,
         "created_at": model.created_at.isoformat(),
     }
@@ -462,32 +293,12 @@ async def toggle_model_status(db: AsyncSession, model_id: int) -> dict:
     await db.flush()
     await db.refresh(model)
 
-    # Fetch provider name and default multiplier for response
-    provider_result = await db.execute(
-        select(Provider.name).where(Provider.id == model.provider_id)
-    )
-    provider_name = provider_result.scalar_one_or_none()
-    provider_name = provider_name if provider_name is not None else ""
-
-    mult_result = await db.execute(
-        select(ChannelConfig.multiplier).where(
-            ChannelConfig.model_id == model_id,
-            ChannelConfig.is_default,
-        )
-    )
-    raw_multiplier = mult_result.scalar_one_or_none()
-    current_multiplier = raw_multiplier if raw_multiplier is not None else 1.0
-
     return {
         "id": model.id,
         "public_name": model.public_name,
-        "provider_id": model.provider_id,
-        "provider_name": provider_name,
-        "provider_model_id": model.provider_model_id,
         "description": model.description,
         "input_price": model.input_price,
         "output_price": model.output_price,
-        "multiplier": current_multiplier,
         "status": model.status,
         "created_at": model.created_at.isoformat(),
     }
@@ -498,7 +309,6 @@ async def delete_model(db: AsyncSession, model_id: int) -> dict:
 
     Blocked if ChannelConfig records still reference this model.
     """
-    # 1. Find model
     result = await db.execute(select(Model).where(Model.id == model_id))
     model = result.scalar_one_or_none()
     if not model:
@@ -506,7 +316,6 @@ async def delete_model(db: AsyncSession, model_id: int) -> dict:
     if model.status == "deleted":
         raise AppException(status_code=404, error="模型不存在", code="MODEL_NOT_FOUND")
 
-    # 2. Check blocking dependents: ChannelConfig
     ch_count_result = await db.execute(
         select(func.count(ChannelConfig.id)).where(ChannelConfig.model_id == model_id)
     )
@@ -518,7 +327,6 @@ async def delete_model(db: AsyncSession, model_id: int) -> dict:
             code="HAS_DEPENDENTS",
         )
 
-    # 3. Check RequestLog references to decide hard vs soft
     rl_count_result = await db.execute(
         select(func.count(RequestLog.id)).where(RequestLog.model_id == model_id)
     )
