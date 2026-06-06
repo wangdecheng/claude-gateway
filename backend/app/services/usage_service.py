@@ -13,8 +13,10 @@ async def record_usage(
     user_id: int,
     api_key_id: int,
     model: str,
-    request_tokens: int = 0,
-    response_tokens: int = 0,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    cache_read_tokens: int = 0,
+    cache_creation_tokens: int = 0,
     cost_cents: int = 0,
 ) -> UsageRecord:
     """Record an API call usage entry.
@@ -26,9 +28,10 @@ async def record_usage(
         user_id=user_id,
         api_key_id=api_key_id,
         model=model,
-        request_tokens=request_tokens,
-        response_tokens=response_tokens,
-        total_tokens=request_tokens + response_tokens,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_read_tokens=cache_read_tokens,
+        cache_creation_tokens=cache_creation_tokens,
         cost_cents=cost_cents,
     )
     db.add(record)
@@ -51,7 +54,14 @@ async def get_user_usage_stats(
     today_result = await db.execute(
         select(
             func.count(UsageRecord.id).label("calls"),
-            func.coalesce(func.sum(UsageRecord.total_tokens), 0).label("tokens"),
+            func.coalesce(
+                func.sum(
+                    UsageRecord.input_tokens
+                    + UsageRecord.cache_read_tokens
+                    + UsageRecord.cache_creation_tokens
+                    + UsageRecord.output_tokens
+                ), 0
+            ).label("tokens"),
             func.coalesce(func.sum(UsageRecord.cost_cents), 0).label("cost"),
         ).where(
             UsageRecord.user_id == user.id,
@@ -66,7 +76,14 @@ async def get_user_usage_stats(
         select(
             func.date(UsageRecord.created_at).label("date"),
             func.count(UsageRecord.id).label("calls"),
-            func.coalesce(func.sum(UsageRecord.total_tokens), 0).label("tokens"),
+            func.coalesce(
+                func.sum(
+                    UsageRecord.input_tokens
+                    + UsageRecord.cache_read_tokens
+                    + UsageRecord.cache_creation_tokens
+                    + UsageRecord.output_tokens
+                ), 0
+            ).label("tokens"),
             func.coalesce(func.sum(UsageRecord.cost_cents), 0).label("cost"),
         )
         .where(
