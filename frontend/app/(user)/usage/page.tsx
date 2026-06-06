@@ -156,9 +156,10 @@ export default function UsagePage() {
                     <tr className="border-b border-neutral-border text-left text-neutral-text-secondary">
                       <th className="py-2 font-medium">时间</th>
                       <th className="py-2 font-medium">模型</th>
-                      <th className="py-2 font-medium text-right">请求</th>
-                      <th className="py-2 font-medium text-right">响应</th>
-                      <th className="py-2 font-medium text-right">总计</th>
+                      <th className="py-2 font-medium text-right">输入</th>
+                      <th className="py-2 font-medium text-right">缓存读</th>
+                      <th className="py-2 font-medium text-right">缓存创建</th>
+                      <th className="py-2 font-medium text-right">输出</th>
                       <th className="py-2 font-medium text-right">费用</th>
                     </tr>
                   </thead>
@@ -173,13 +174,16 @@ export default function UsagePage() {
                         </td>
                         <td className="py-2 font-mono text-xs">{r.model}</td>
                         <td className="py-2 text-right font-mono">
-                          {formatTokens(r.requestTokens)}
+                          {formatTokens(r.inputTokens)}
                         </td>
                         <td className="py-2 text-right font-mono">
-                          {formatTokens(r.responseTokens)}
+                          {formatTokens(r.cacheReadTokens)}
                         </td>
                         <td className="py-2 text-right font-mono">
-                          {formatTokens(r.totalTokens)}
+                          {formatTokens(r.cacheCreationTokens)}
+                        </td>
+                        <td className="py-2 text-right font-mono">
+                          {formatTokens(r.outputTokens)}
                         </td>
                         <td className="py-2 text-right font-mono">
                           {formatPrice(r.costCents)}
