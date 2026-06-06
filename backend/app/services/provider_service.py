@@ -350,6 +350,7 @@ def _format_channel_row(channel: ChannelConfig, model: Model, provider: Provider
         "provider_id": channel.provider_id,
         "provider_name": provider.name,
         "provider_status": provider.status,
+        "provider_model_id": channel.provider_model_id,
         "multiplier": channel.multiplier,
         "is_default": channel.is_default,
         "status": channel.status,
@@ -419,6 +420,7 @@ async def create_channel_config(
     *,
     model_id: int,
     provider_id: int,
+    provider_model_id: str,
     multiplier: float,
     is_default: bool = False,
 ) -> dict:
@@ -455,6 +457,7 @@ async def create_channel_config(
     channel = ChannelConfig(
         model_id=model_id,
         provider_id=provider_id,
+        provider_model_id=provider_model_id,
         multiplier=multiplier,
         is_default=False,
         status="active",
@@ -473,11 +476,15 @@ async def update_channel_config(
     db: AsyncSession,
     channel_id: int,
     *,
+    provider_model_id: str | None = None,
     multiplier: float | None = None,
     is_default: bool | None = None,
 ) -> dict:
-    """Update multiplier/default flag for a channel config."""
+    """Update provider_model_id / multiplier / default flag for a channel config."""
     channel, model, provider = await _get_channel_with_context_or_404(db, channel_id)
+
+    if provider_model_id is not None:
+        channel.provider_model_id = provider_model_id
 
     if multiplier is not None:
         if multiplier <= 0:
@@ -542,11 +549,6 @@ async def delete_provider(db: AsyncSession, provider_id: int) -> dict:
     # 2. Check blocking dependents
     blocking: dict[str, int] = {}
 
-    model_count_result = await db.execute(
-        select(func.count(Model.id)).where(Model.provider_id == provider_id)
-    )
-    blocking["models"] = model_count_result.scalar_one()
-
     ch_count_result = await db.execute(
         select(func.count(ChannelConfig.id)).where(
             ChannelConfig.provider_id == provider_id
@@ -562,11 +564,9 @@ async def delete_provider(db: AsyncSession, provider_id: int) -> dict:
     )
     blocking["keys"] = key_count_result.scalar_one()
 
-    total_blocking = blocking["models"] + blocking["channels"] + blocking["keys"]
+    total_blocking = blocking["channels"] + blocking["keys"]
     if total_blocking > 0:
         parts = []
-        if blocking["models"]:
-            parts.append(f"{blocking['models']} 个模型")
         if blocking["channels"]:
             parts.append(f"{blocking['channels']} 个渠道配置")
         if blocking["keys"]:
