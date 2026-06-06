@@ -36,60 +36,50 @@ SEED_PROVIDERS = [
 SEED_MODELS = [
     {
         "public_name": "claude-opus-4-8",
-        "provider_name": "Anthropic",
-        "provider_model_id": "claude-opus-4-8-20250501",
         "description": "Anthropic 最强大的模型，擅长复杂的多步推理、长文档分析和代码生成。",
         "input_price": 15_000,  # ¥0.015/1K, stored as micro-yuan per 1K
         "output_price": 75_000,  # ¥0.075/1K
     },
     {
         "public_name": "claude-sonnet-4-6",
-        "provider_name": "Anthropic",
-        "provider_model_id": "claude-sonnet-4-6-20250501",
         "description": "速度、性能与成本的平衡之选，适合大多数开发任务。",
         "input_price": 3_000,  # ¥0.003/1K
         "output_price": 15_000,  # ¥0.015/1K
     },
     {
         "public_name": "claude-haiku-4-5",
-        "provider_name": "Anthropic",
-        "provider_model_id": "claude-haiku-4-5-20251001",
         "description": "最快的模型，适用于简单任务、对话和实时响应场景。",
         "input_price": 800,  # ¥0.0008/1K
         "output_price": 4_000,  # ¥0.004/1K
     },
     {
         "public_name": "gpt-4o",
-        "provider_name": "OpenAI",
-        "provider_model_id": "gpt-4o",
         "description": "OpenAI 的高智能旗舰模型，支持多模态输入，适合复杂的跨领域任务。",
         "input_price": 25_000,  # ¥0.025/1K
         "output_price": 100_000,  # ¥0.10/1K
     },
     {
         "public_name": "gpt-4o-mini",
-        "provider_name": "OpenAI",
-        "provider_model_id": "gpt-4o-mini",
         "description": "经济实惠的小型模型，适合日常任务、简单对话和快速原型。",
         "input_price": 150,  # ¥0.00015/1K
         "output_price": 600,  # ¥0.0006/1K
     },
 ]
 
-# Channel configs: (model_name, provider_name, multiplier, is_default)
+# Channel configs: (model_name, provider_name, provider_model_id, multiplier, is_default)
 # Native channels at 1.0x (default), plus some cross-provider channels
 SEED_CHANNEL_CONFIGS = [
     # Native Anthropic models
-    ("claude-opus-4-8", "Anthropic", 1.0, True),
-    ("claude-sonnet-4-6", "Anthropic", 1.0, True),
-    ("claude-haiku-4-5", "Anthropic", 1.0, True),
+    ("claude-opus-4-8", "Anthropic", "claude-opus-4-8-20250501", 1.0, True),
+    ("claude-sonnet-4-6", "Anthropic", "claude-sonnet-4-6-20250501", 1.0, True),
+    ("claude-haiku-4-5", "Anthropic", "claude-haiku-4-5-20251001", 1.0, True),
     # Native OpenAI models
-    ("gpt-4o", "OpenAI", 1.0, True),
-    ("gpt-4o-mini", "OpenAI", 1.0, True),
+    ("gpt-4o", "OpenAI", "gpt-4o", 1.0, True),
+    ("gpt-4o-mini", "OpenAI", "gpt-4o-mini", 1.0, True),
     # Cross-provider via RightCodes (higher multiplier)
-    ("claude-opus-4-8", "RightCodes", 1.2, False),
-    ("claude-haiku-4-5", "RightCodes", 1.5, False),
-    ("gpt-4o-mini", "RightCodes", 1.3, False),
+    ("claude-opus-4-8", "RightCodes", "claude-opus-4-8-20250501", 1.2, False),
+    ("claude-haiku-4-5", "RightCodes", "claude-haiku-4-5-20251001", 1.5, False),
+    ("gpt-4o-mini", "RightCodes", "gpt-4o-mini", 1.3, False),
 ]
 
 
@@ -125,14 +115,11 @@ async def seed_dev_data(db=None) -> None:
             await db.flush()  # get the ID
             provider_map[provider.name] = provider
 
-        # Insert models
+        # Insert models (no provider dependency)
         model_map: dict[str, Model] = {}
         for mdata in SEED_MODELS:
-            provider = provider_map[mdata["provider_name"]]
             model = Model(
                 public_name=mdata["public_name"],
-                provider_id=provider.id,
-                provider_model_id=mdata["provider_model_id"],
                 description=mdata["description"],
                 input_price=mdata["input_price"],
                 output_price=mdata["output_price"],
@@ -142,13 +129,14 @@ async def seed_dev_data(db=None) -> None:
             await db.flush()
             model_map[model.public_name] = model
 
-        # Insert channel configs
-        for model_name, provider_name, multiplier, is_default in SEED_CHANNEL_CONFIGS:
+        # Insert channel configs (with provider_model_id)
+        for model_name, provider_name, provider_model_id, multiplier, is_default in SEED_CHANNEL_CONFIGS:
             model = model_map[model_name]
             provider = provider_map[provider_name]
             ch = ChannelConfig(
                 model_id=model.id,
                 provider_id=provider.id,
+                provider_model_id=provider_model_id,
                 multiplier=multiplier,
                 status="active",
                 is_default=is_default,
