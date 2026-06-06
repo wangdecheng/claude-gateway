@@ -350,6 +350,7 @@ def _format_channel_row(channel: ChannelConfig, model: Model, provider: Provider
         "provider_id": channel.provider_id,
         "provider_name": provider.name,
         "provider_status": provider.status,
+        "name": channel.name,
         "provider_model_id": channel.provider_model_id,
         "multiplier": channel.multiplier,
         "is_default": channel.is_default,
@@ -420,6 +421,7 @@ async def create_channel_config(
     *,
     model_id: int,
     provider_id: int,
+    name: str,
     provider_model_id: str,
     multiplier: float,
     is_default: bool = False,
@@ -457,6 +459,7 @@ async def create_channel_config(
     channel = ChannelConfig(
         model_id=model_id,
         provider_id=provider_id,
+        name=name,
         provider_model_id=provider_model_id,
         multiplier=multiplier,
         is_default=False,
@@ -476,12 +479,16 @@ async def update_channel_config(
     db: AsyncSession,
     channel_id: int,
     *,
+    name: str | None = None,
     provider_model_id: str | None = None,
     multiplier: float | None = None,
     is_default: bool | None = None,
 ) -> dict:
-    """Update provider_model_id / multiplier / default flag for a channel config."""
+    """Update name / provider_model_id / multiplier / default flag for a channel config."""
     channel, model, provider = await _get_channel_with_context_or_404(db, channel_id)
+
+    if name is not None:
+        channel.name = name
 
     if provider_model_id is not None:
         channel.provider_model_id = provider_model_id

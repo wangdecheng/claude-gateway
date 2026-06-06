@@ -67,6 +67,7 @@ export default function AdminChannelsPage() {
         await updateMutation.mutateAsync({
           id: editingChannel.id,
           data: {
+            name: data.name || undefined,
             providerModelId: data.providerModelId || undefined,
             multiplier: data.multiplier,
             isDefault: data.isDefault,
@@ -76,6 +77,7 @@ export default function AdminChannelsPage() {
         await createMutation.mutateAsync({
           modelId: data.modelId,
           providerId: data.providerId,
+          name: data.name,
           providerModelId: data.providerModelId,
           multiplier: data.multiplier,
           isDefault: data.isDefault,
@@ -155,6 +157,7 @@ export default function AdminChannelsPage() {
             <tr className="border-b border-slate-200 bg-slate-50 text-left text-sm text-neutral-text-secondary">
               <th className="px-4 py-3 font-medium">模型</th>
               <th className="px-4 py-3 font-medium">供应商</th>
+              <th className="px-4 py-3 font-medium">渠道名称</th>
               <th className="px-4 py-3 font-medium">上游模型 ID</th>
               <th className="px-4 py-3 text-right font-medium">倍率</th>
               <th className="px-4 py-3 font-medium">默认</th>
@@ -166,7 +169,7 @@ export default function AdminChannelsPage() {
           <tbody>
             {(!channels || channels.length === 0) && (
               <tr>
-                <td colSpan={8} className="px-4 py-12 text-center text-sm text-neutral-text-secondary">
+                <td colSpan={9} className="px-4 py-12 text-center text-sm text-neutral-text-secondary">
                   还没有渠道配置，点击"添加渠道"开始
                 </td>
               </tr>
@@ -178,6 +181,9 @@ export default function AdminChannelsPage() {
                 </td>
                 <td className="px-4 py-3 text-neutral-text-primary">
                   {channel.providerName}
+                </td>
+                <td className="px-4 py-3 text-neutral-text-primary">
+                  {channel.name}
                 </td>
                 <td className="px-4 py-3">
                   <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
@@ -312,6 +318,7 @@ export default function AdminChannelsPage() {
 interface ChannelFormValues {
   modelId: number;
   providerId: number;
+  name: string;
   providerModelId: string;
   multiplier: number;
   isDefault: boolean;
@@ -337,6 +344,7 @@ function ChannelFormDialog({
 
   const [modelId, setModelId] = useState(channel?.modelId ?? 0);
   const [providerId, setProviderId] = useState(channel?.providerId ?? 0);
+  const [name, setName] = useState(channel?.name ?? "");
   const [providerModelId, setProviderModelId] = useState(channel?.providerModelId ?? "");
   const [multiplier, setMultiplier] = useState(channel?.multiplier ?? 1.0);
   const [isDefault, setIsDefault] = useState(channel?.isDefault ?? false);
@@ -345,6 +353,7 @@ function ChannelFormDialog({
     if (open) {
       setModelId(channel?.modelId ?? 0);
       setProviderId(channel?.providerId ?? 0);
+      setName(channel?.name ?? "");
       setProviderModelId(channel?.providerModelId ?? "");
       setMultiplier(channel?.multiplier ?? 1.0);
       setIsDefault(channel?.isDefault ?? false);
@@ -353,7 +362,7 @@ function ChannelFormDialog({
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    await onSubmit({ modelId, providerId, providerModelId, multiplier, isDefault });
+    await onSubmit({ modelId, providerId, name, providerModelId, multiplier, isDefault });
   };
 
   return (
@@ -363,6 +372,7 @@ function ChannelFormDialog({
         if (!nextOpen) {
           setModelId(0);
           setProviderId(0);
+          setName("");
           setProviderModelId("");
           setMultiplier(1.0);
           setIsDefault(false);
@@ -422,6 +432,20 @@ function ChannelFormDialog({
           </div>
 
           <div className="space-y-2">
+            <Label htmlFor="channelName">
+              渠道名称 <span className="text-red-500">*</span>
+            </Label>
+            <Input
+              id="channelName"
+              placeholder="如 主力线路、Anthropic 官方"
+              maxLength={50}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
             <Label htmlFor="providerModelId">
               上游模型 ID <span className="text-red-500">*</span>
             </Label>
@@ -431,14 +455,8 @@ function ChannelFormDialog({
               maxLength={200}
               value={providerModelId}
               onChange={(event) => setProviderModelId(event.target.value)}
-              disabled={Boolean(channel)}
               required
             />
-            {channel && (
-              <p className="text-xs text-muted-foreground mt-1">
-                上游模型 ID 不可修改，如需更换请创建新渠道
-              </p>
-            )}
           </div>
 
           <div className="space-y-2">
@@ -478,6 +496,7 @@ function ChannelFormDialog({
                 isSubmitting ||
                 !modelId ||
                 !providerId ||
+                !name.trim() ||
                 !providerModelId.trim() ||
                 multiplier <= 0
               }

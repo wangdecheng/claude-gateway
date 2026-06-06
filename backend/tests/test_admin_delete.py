@@ -110,6 +110,7 @@ async def _setup_test_data(client: AsyncClient) -> dict:
         json={
             "modelId": model_id,
             "providerId": provider_id,
+            "name": "测试渠道",
             "providerModelId": "test-model-delete",
             "multiplier": 1.0,
             "isDefault": True,

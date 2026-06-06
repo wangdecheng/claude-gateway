@@ -33,6 +33,7 @@ def _format_channel(result: dict) -> dict:
         "providerId": result["provider_id"],
         "providerName": result["provider_name"],
         "providerStatus": result["provider_status"],
+        "name": result["name"],
         "providerModelId": result["provider_model_id"],
         "multiplier": result["multiplier"],
         "isDefault": result["is_default"],
@@ -63,6 +64,7 @@ async def create_channel(
             db,
             model_id=data.model_id,
             provider_id=data.provider_id,
+            name=data.name,
             provider_model_id=data.provider_model_id,
             multiplier=data.multiplier,
             is_default=data.is_default,
@@ -90,10 +92,11 @@ async def update_channel(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Update channel provider_model_id, multiplier and/or default flag."""
+    """Update channel name, provider_model_id, multiplier and/or default flag."""
     result = await provider_service.update_channel_config(
         db,
         channel_id,
+        name=data.name,
         provider_model_id=data.provider_model_id,
         multiplier=data.multiplier,
         is_default=data.is_default,

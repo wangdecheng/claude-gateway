@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 class ChannelInfo(BaseModel):
     id: int
     provider_name: str = Field(..., alias="providerName")
+    channel_name: str = Field(..., alias="channelName")
     multiplier: float
     is_default: bool = Field(..., alias="isDefault")
 

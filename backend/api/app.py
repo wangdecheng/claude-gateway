@@ -105,6 +105,7 @@ def create_app() -> FastAPI:
         admin_channels,
         admin_models,
         admin_providers,
+        admin_users,
         api_keys,
         auth,
         models,
@@ -124,6 +125,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_models.router)
     app.include_router(admin_providers.router)
     app.include_router(admin_channels.router)
+    app.include_router(admin_users.router)
 
     # === Health check ===
     @app.get("/api/health")

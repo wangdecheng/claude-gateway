@@ -6,6 +6,7 @@ import { apiClient, ApiClientError } from "./client";
 export interface ChannelInfo {
   id: number;
   providerName: string;
+  channelName: string;
   multiplier: number;
   isDefault: boolean;
 }

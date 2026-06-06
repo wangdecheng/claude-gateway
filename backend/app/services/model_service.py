@@ -68,6 +68,7 @@ async def list_active_models(db: AsyncSession) -> list[dict]:
                 "id": ch_config.id,
                 "model_id": ch_config.model_id,
                 "provider_name": provider_name,
+                "channel_name": ch_config.name,
                 "multiplier": ch_config.multiplier,
                 "is_default": ch_config.is_default,
             }
@@ -95,6 +96,7 @@ async def list_active_models(db: AsyncSession) -> list[dict]:
                     {
                         "id": channel["id"],
                         "provider_name": channel["provider_name"],
+                        "channel_name": channel["channel_name"],
                         "multiplier": channel["multiplier"],
                         "is_default": channel["is_default"],
                     }
@@ -131,6 +133,7 @@ async def get_model_detail(db: AsyncSession, model_id: int) -> dict:
             {
                 "id": ch_config.id,
                 "provider_name": ch_provider_name,
+                "channel_name": ch_config.name,
                 "multiplier": ch_config.multiplier,
                 "is_default": ch_config.is_default,
             }

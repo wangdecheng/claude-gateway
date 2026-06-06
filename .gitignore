@@ -20,6 +20,8 @@ venv/
 # Node
 node_modules/
 .next/
+.superpowers
+docs/superpowers
 
 # Environment
 .env

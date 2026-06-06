@@ -8,6 +8,12 @@ class ChannelCreate(BaseModel):
 
     model_id: int = Field(..., gt=0, alias="modelId")
     provider_id: int = Field(..., gt=0, alias="providerId")
+    name: str = Field(
+        ...,
+        min_length=1,
+        max_length=50,
+        description="Human-friendly channel label, e.g. '主力线路'",
+    )
     provider_model_id: str = Field(
         ...,
         min_length=1,
@@ -24,6 +30,11 @@ class ChannelCreate(BaseModel):
 class ChannelUpdate(BaseModel):
     """Schema for updating an existing channel config."""
 
+    name: str | None = Field(
+        None,
+        min_length=1,
+        max_length=50,
+    )
     provider_model_id: str | None = Field(
         None,
         min_length=1,
@@ -38,11 +49,12 @@ class ChannelUpdate(BaseModel):
     @model_validator(mode="after")
     def _require_at_least_one_field(self):
         if (
-            self.provider_model_id is None
+            self.name is None
+            and self.provider_model_id is None
             and self.multiplier is None
             and self.is_default is None
         ):
-            raise ValueError("至少需要提供 providerModelId、multiplier 或 isDefault 之一")
+            raise ValueError("至少需要提供 name、providerModelId、multiplier 或 isDefault 之一")
         return self
 
 
@@ -56,6 +68,7 @@ class AdminChannelResponse(BaseModel):
     provider_id: int = Field(..., alias="providerId")
     provider_name: str = Field(..., alias="providerName")
     provider_status: str = Field(..., alias="providerStatus")
+    name: str
     provider_model_id: str = Field(..., alias="providerModelId")
     multiplier: float
     is_default: bool = Field(..., alias="isDefault")

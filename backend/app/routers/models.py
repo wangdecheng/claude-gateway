@@ -31,6 +31,7 @@ async def list_models(
                 {
                     "id": ch["id"],
                     "providerName": ch["provider_name"],
+                    "channelName": ch["channel_name"],
                     "multiplier": ch["multiplier"],
                     "isDefault": ch["is_default"],
                 }
@@ -65,6 +66,7 @@ async def model_detail(
             {
                 "id": ch["id"],
                 "providerName": ch["provider_name"],
+                "channelName": ch["channel_name"],
                 "multiplier": ch["multiplier"],
                 "isDefault": ch["is_default"],
             }

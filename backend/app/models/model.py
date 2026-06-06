@@ -37,6 +37,7 @@ class ChannelConfig(Base):
     model_id: Mapped[int] = mapped_column(Integer, ForeignKey("models.id"), nullable=False)
     provider_id: Mapped[int] = mapped_column(Integer, ForeignKey("providers.id"), nullable=False)
     provider_model_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    name: Mapped[str] = mapped_column(String(50), nullable=False)
     multiplier: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

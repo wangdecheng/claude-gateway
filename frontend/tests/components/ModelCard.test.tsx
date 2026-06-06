@@ -36,8 +36,8 @@ const MOCK_MODEL: ModelWithChannels = {
   inputPrice: 3_000,
   outputPrice: 15_000,
   channels: [
-    { id: 1, providerName: "Anthropic", multiplier: 1.0, isDefault: true },
-    { id: 2, providerName: "RightCodes", multiplier: 1.2, isDefault: false },
+    { id: 1, providerName: "Anthropic", channelName: "Anthropic 官方", multiplier: 1.0, isDefault: true },
+    { id: 2, providerName: "RightCodes", channelName: "RightCodes 备用", multiplier: 1.2, isDefault: false },
   ],
 };
 
@@ -48,7 +48,7 @@ const MOCK_SINGLE_CHANNEL: ModelWithChannels = {
   inputPrice: 150,
   outputPrice: 600,
   channels: [
-    { id: 3, providerName: "OpenAI", multiplier: 1.0, isDefault: true },
+    { id: 3, providerName: "OpenAI", channelName: "OpenAI 官方", multiplier: 1.0, isDefault: true },
   ],
 };
 

@@ -66,20 +66,20 @@ SEED_MODELS = [
     },
 ]
 
-# Channel configs: (model_name, provider_name, provider_model_id, multiplier, is_default)
+# Channel configs: (model_name, provider_name, name, provider_model_id, multiplier, is_default)
 # Native channels at 1.0x (default), plus some cross-provider channels
 SEED_CHANNEL_CONFIGS = [
     # Native Anthropic models
-    ("claude-opus-4-8", "Anthropic", "claude-opus-4-8-20250501", 1.0, True),
-    ("claude-sonnet-4-6", "Anthropic", "claude-sonnet-4-6-20250501", 1.0, True),
-    ("claude-haiku-4-5", "Anthropic", "claude-haiku-4-5-20251001", 1.0, True),
+    ("claude-opus-4-8", "Anthropic", "Anthropic 官方", "claude-opus-4-8-20250501", 1.0, True),
+    ("claude-sonnet-4-6", "Anthropic", "Anthropic 官方", "claude-sonnet-4-6-20250501", 1.0, True),
+    ("claude-haiku-4-5", "Anthropic", "Anthropic 官方", "claude-haiku-4-5-20251001", 1.0, True),
     # Native OpenAI models
-    ("gpt-4o", "OpenAI", "gpt-4o", 1.0, True),
-    ("gpt-4o-mini", "OpenAI", "gpt-4o-mini", 1.0, True),
+    ("gpt-4o", "OpenAI", "OpenAI 官方", "gpt-4o", 1.0, True),
+    ("gpt-4o-mini", "OpenAI", "OpenAI 官方", "gpt-4o-mini", 1.0, True),
     # Cross-provider via RightCodes (higher multiplier)
-    ("claude-opus-4-8", "RightCodes", "claude-opus-4-8-20250501", 1.2, False),
-    ("claude-haiku-4-5", "RightCodes", "claude-haiku-4-5-20251001", 1.5, False),
-    ("gpt-4o-mini", "RightCodes", "gpt-4o-mini", 1.3, False),
+    ("claude-opus-4-8", "RightCodes", "RightCodes 备用", "claude-opus-4-8-20250501", 1.2, False),
+    ("claude-haiku-4-5", "RightCodes", "RightCodes 备用", "claude-haiku-4-5-20251001", 1.5, False),
+    ("gpt-4o-mini", "RightCodes", "RightCodes 备用", "gpt-4o-mini", 1.3, False),
 ]
 
 
@@ -129,13 +129,14 @@ async def seed_dev_data(db=None) -> None:
             await db.flush()
             model_map[model.public_name] = model
 
-        # Insert channel configs (with provider_model_id)
-        for model_name, provider_name, provider_model_id, multiplier, is_default in SEED_CHANNEL_CONFIGS:
+        # Insert channel configs (with provider_model_id and name)
+        for model_name, provider_name, channel_name, provider_model_id, multiplier, is_default in SEED_CHANNEL_CONFIGS:
             model = model_map[model_name]
             provider = provider_map[provider_name]
             ch = ChannelConfig(
                 model_id=model.id,
                 provider_id=provider.id,
+                name=channel_name,
                 provider_model_id=provider_model_id,
                 multiplier=multiplier,
                 status="active",
