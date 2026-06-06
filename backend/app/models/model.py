@@ -11,8 +11,6 @@ class Model(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     public_name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
-    provider_id: Mapped[int] = mapped_column(Integer, ForeignKey("providers.id"), nullable=False)
-    provider_model_id: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     input_price: Mapped[int] = mapped_column(
         Integer, default=0, nullable=False
@@ -38,6 +36,7 @@ class ChannelConfig(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     model_id: Mapped[int] = mapped_column(Integer, ForeignKey("models.id"), nullable=False)
     provider_id: Mapped[int] = mapped_column(Integer, ForeignKey("providers.id"), nullable=False)
+    provider_model_id: Mapped[str] = mapped_column(String(200), nullable=False)
     multiplier: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
