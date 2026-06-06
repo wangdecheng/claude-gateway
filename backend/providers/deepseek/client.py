@@ -25,7 +25,7 @@ from .request import build_request_body
 @dataclass
 class _DeepSeekNativeSseState(NativeSseBlockPolicyState):
     synthetic_cache_creation_by_usage: dict[tuple[int, int], int] = field(default_factory=dict)
-    cache_creation_max_input_multiplier: int = 10
+    cache_creation_max_input_multiplier: int = 6
     request_id: str | None = None
     claude_session_id: str | None = None
     log_usage: bool = False
@@ -65,7 +65,7 @@ def _synthetic_cache_creation_tokens(
     elif cache_read_tokens <= 0:
         creation = input_tokens
     else:
-        low = input_tokens
+        low = input_tokens * 0.5
         high = input_tokens * max_multiplier
         span = high - low + 1
         digest = hashlib.blake2s(seed.encode("utf-8"), digest_size=8).digest()
