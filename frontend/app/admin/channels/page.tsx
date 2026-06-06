@@ -67,6 +67,7 @@ export default function AdminChannelsPage() {
         await updateMutation.mutateAsync({
           id: editingChannel.id,
           data: {
+            providerModelId: data.providerModelId || undefined,
             multiplier: data.multiplier,
             isDefault: data.isDefault,
           },
@@ -75,6 +76,7 @@ export default function AdminChannelsPage() {
         await createMutation.mutateAsync({
           modelId: data.modelId,
           providerId: data.providerId,
+          providerModelId: data.providerModelId,
           multiplier: data.multiplier,
           isDefault: data.isDefault,
         });
@@ -138,7 +140,7 @@ export default function AdminChannelsPage() {
             渠道倍率配置
           </h1>
           <p className="mt-1 text-sm text-neutral-text-secondary">
-            为每个供应商-模型组合配置倍率和默认渠道
+            为每个供应商-模型组合配置上游模型 ID、倍率和默认渠道
           </p>
         </div>
         <Button onClick={openCreate}>
@@ -153,6 +155,7 @@ export default function AdminChannelsPage() {
             <tr className="border-b border-slate-200 bg-slate-50 text-left text-sm text-neutral-text-secondary">
               <th className="px-4 py-3 font-medium">模型</th>
               <th className="px-4 py-3 font-medium">供应商</th>
+              <th className="px-4 py-3 font-medium">上游模型 ID</th>
               <th className="px-4 py-3 text-right font-medium">倍率</th>
               <th className="px-4 py-3 font-medium">默认</th>
               <th className="px-4 py-3 font-medium">渠道状态</th>
@@ -163,7 +166,7 @@ export default function AdminChannelsPage() {
           <tbody>
             {(!channels || channels.length === 0) && (
               <tr>
-                <td colSpan={7} className="px-4 py-12 text-center text-sm text-neutral-text-secondary">
+                <td colSpan={8} className="px-4 py-12 text-center text-sm text-neutral-text-secondary">
                   还没有渠道配置，点击"添加渠道"开始
                 </td>
               </tr>
@@ -175,6 +178,11 @@ export default function AdminChannelsPage() {
                 </td>
                 <td className="px-4 py-3 text-neutral-text-primary">
                   {channel.providerName}
+                </td>
+                <td className="px-4 py-3">
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
+                    {channel.providerModelId}
+                  </code>
                 </td>
                 <td className="px-4 py-3 text-right font-mono text-sm">
                   {channel.multiplier.toFixed(2)}x
@@ -235,6 +243,7 @@ export default function AdminChannelsPage() {
         error={formError}
       />
 
+      {/* Toggle confirmation dialog */}
       <Dialog open={toggleConfirm !== null} onOpenChange={(open) => !open && setToggleConfirm(null)}>
         <DialogContent className="sm:max-w-[420px]">
           <DialogHeader>
@@ -303,6 +312,7 @@ export default function AdminChannelsPage() {
 interface ChannelFormValues {
   modelId: number;
   providerId: number;
+  providerModelId: string;
   multiplier: number;
   isDefault: boolean;
 }
@@ -327,6 +337,7 @@ function ChannelFormDialog({
 
   const [modelId, setModelId] = useState(channel?.modelId ?? 0);
   const [providerId, setProviderId] = useState(channel?.providerId ?? 0);
+  const [providerModelId, setProviderModelId] = useState(channel?.providerModelId ?? "");
   const [multiplier, setMultiplier] = useState(channel?.multiplier ?? 1.0);
   const [isDefault, setIsDefault] = useState(channel?.isDefault ?? false);
 
@@ -334,6 +345,7 @@ function ChannelFormDialog({
     if (open) {
       setModelId(channel?.modelId ?? 0);
       setProviderId(channel?.providerId ?? 0);
+      setProviderModelId(channel?.providerModelId ?? "");
       setMultiplier(channel?.multiplier ?? 1.0);
       setIsDefault(channel?.isDefault ?? false);
     }
@@ -341,7 +353,7 @@ function ChannelFormDialog({
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    await onSubmit({ modelId, providerId, multiplier, isDefault });
+    await onSubmit({ modelId, providerId, providerModelId, multiplier, isDefault });
   };
 
   return (
@@ -351,6 +363,7 @@ function ChannelFormDialog({
         if (!nextOpen) {
           setModelId(0);
           setProviderId(0);
+          setProviderModelId("");
           setMultiplier(1.0);
           setIsDefault(false);
         }
@@ -362,7 +375,7 @@ function ChannelFormDialog({
           <DialogHeader>
             <DialogTitle>{channel ? "编辑渠道" : "添加渠道"}</DialogTitle>
             <DialogDescription>
-              配置模型与供应商之间的倍率和默认渠道。
+              配置模型与供应商之间的上游模型 ID、倍率和默认渠道。
             </DialogDescription>
           </DialogHeader>
 
@@ -409,6 +422,26 @@ function ChannelFormDialog({
           </div>
 
           <div className="space-y-2">
+            <Label htmlFor="providerModelId">
+              上游模型 ID <span className="text-red-500">*</span>
+            </Label>
+            <Input
+              id="providerModelId"
+              placeholder="如 deepseekV4-pro"
+              maxLength={200}
+              value={providerModelId}
+              onChange={(event) => setProviderModelId(event.target.value)}
+              disabled={Boolean(channel)}
+              required
+            />
+            {channel && (
+              <p className="text-xs text-muted-foreground mt-1">
+                上游模型 ID 不可修改，如需更换请创建新渠道
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-2">
             <Label htmlFor="multiplier">倍率</Label>
             <Input
               id="multiplier"
@@ -439,7 +472,16 @@ function ChannelFormDialog({
             <Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>
               取消
             </Button>
-            <Button type="submit" disabled={isSubmitting || !modelId || !providerId || multiplier <= 0}>
+            <Button
+              type="submit"
+              disabled={
+                isSubmitting ||
+                !modelId ||
+                !providerId ||
+                !providerModelId.trim() ||
+                multiplier <= 0
+              }
+            >
               {isSubmitting ? "保存中..." : "保存"}
             </Button>
           </DialogFooter>

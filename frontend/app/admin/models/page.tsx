@@ -29,7 +29,6 @@ import {
 import { ModelEditForm } from "@/components/forms/ModelEditForm";
 import {
   useAdminModels,
-  useAdminProviders,
   useCreateModel,
   useUpdateModel,
   useToggleModelStatus,
@@ -45,7 +44,7 @@ import { ApiClientError } from "@/lib/api/client";
 const columnHelper = createColumnHelper<AdminModelItem>();
 
 function formatPrice(microYuan: number): string {
-  const yuan = microYuan / 10_000; // micro-yuan / 1K tokens → ¥/1K tokens
+  const yuan = microYuan / 10_000;
   return `¥${yuan.toFixed(4)}`;
 }
 
@@ -53,21 +52,6 @@ const COLUMNS = [
   columnHelper.accessor("publicName", {
     header: "公开名称",
     cell: (info) => <span className="font-medium">{info.getValue()}</span>,
-  }),
-  columnHelper.accessor("providerName", {
-    header: "上游供应商",
-  }),
-  columnHelper.accessor("providerModelId", {
-    header: "内部模型 ID",
-    cell: (info) => (
-      <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
-        {info.getValue()}
-      </code>
-    ),
-  }),
-  columnHelper.accessor("multiplier", {
-    header: "默认倍率",
-    cell: (info) => <span>{info.getValue().toFixed(1)}x</span>,
   }),
   columnHelper.accessor("inputPrice", {
     header: "Input 单价",
@@ -96,7 +80,6 @@ const COLUMNS = [
 
 export default function AdminModelsPage() {
   const { data: models, isLoading, error } = useAdminModels();
-  const { data: providers = [] } = useAdminProviders();
   const createMutation = useCreateModel();
   const updateMutation = useUpdateModel();
   const toggleMutation = useToggleModelStatus();
@@ -190,7 +173,7 @@ export default function AdminModelsPage() {
         <div>
           <h1 className="text-2xl font-semibold text-neutral-text-primary">模型管理</h1>
           <p className="text-sm text-neutral-text-secondary mt-1">
-            添加、编辑、上下架 AI 模型
+            管理 AI 模型的基本信息和定价。供应商和上游模型映射请在渠道管理中配置。
           </p>
         </div>
         <Button onClick={handleCreate}>
@@ -292,7 +275,6 @@ export default function AdminModelsPage() {
         onOpenChange={setFormOpen}
         onSubmit={handleFormSubmit}
         model={editingModel}
-        providers={providers}
         isSubmitting={isSubmitting}
         error={formError}
       />

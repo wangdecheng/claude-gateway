@@ -11,35 +11,25 @@ export interface ProviderOption {
 export interface AdminModelItem {
   id: number;
   publicName: string;
-  providerId: number;
-  providerName: string;
-  providerModelId: string;
   description: string | null;
-  inputPrice: number;   // micro-yuan per 1K tokens
-  outputPrice: number;  // micro-yuan per 1K tokens
-  multiplier: number;
+  inputPrice: number;
+  outputPrice: number;
   status: "active" | "inactive";
   createdAt: string;
 }
 
 export interface ModelCreateInput {
   publicName: string;
-  providerId: number;
-  providerModelId: string;
   description?: string;
   inputPrice: number;
   outputPrice: number;
-  multiplier?: number;
 }
 
 export interface ModelUpdateInput {
   publicName?: string;
-  providerId?: number;
-  providerModelId?: string;
   description?: string;
   inputPrice?: number;
   outputPrice?: number;
-  multiplier?: number;
 }
 
 // --- Hooks ---
@@ -60,17 +50,13 @@ export function useCreateModel() {
         method: "POST",
         body: JSON.stringify({
           publicName: data.publicName,
-          providerId: data.providerId,
-          providerModelId: data.providerModelId,
           description: data.description ?? null,
           inputPrice: data.inputPrice,
           outputPrice: data.outputPrice,
-          multiplier: data.multiplier ?? 1.0,
         }),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin", "models"] });
-      // Also invalidate the public models list so users see new models immediately
       queryClient.invalidateQueries({ queryKey: ["models"] });
     },
   });
