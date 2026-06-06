@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class ModelCreate(BaseModel):
-    """Schema for creating a new model with default channel config."""
+    """Schema for creating a new model."""
 
     public_name: str = Field(
         ...,
@@ -13,13 +13,6 @@ class ModelCreate(BaseModel):
         alias="publicName",
         description="Public display name for the model",
     )
-    provider_id: int = Field(..., gt=0, alias="providerId")
-    provider_model_id: str = Field(
-        ...,
-        min_length=1,
-        max_length=200,
-        alias="providerModelId",
-    )
     description: str | None = Field(None, max_length=2000)
     input_price: int = Field(
         ..., ge=0, alias="inputPrice", description="Input price in micro-yuan per 1K tokens"
@@ -27,7 +20,6 @@ class ModelCreate(BaseModel):
     output_price: int = Field(
         ..., ge=0, alias="outputPrice", description="Output price in micro-yuan per 1K tokens"
     )
-    multiplier: float = Field(1.0, gt=0, description="Default channel multiplier")
 
     model_config = {"populate_by_name": True}
 
@@ -52,17 +44,9 @@ class ModelUpdate(BaseModel):
         max_length=100,
         alias="publicName",
     )
-    provider_id: int | None = Field(None, gt=0, alias="providerId")
-    provider_model_id: str | None = Field(
-        None,
-        min_length=1,
-        max_length=200,
-        alias="providerModelId",
-    )
     description: str | None = Field(None, max_length=2000)
     input_price: int | None = Field(None, ge=0, alias="inputPrice")
     output_price: int | None = Field(None, ge=0, alias="outputPrice")
-    multiplier: float | None = Field(None, gt=0)
 
     model_config = {"populate_by_name": True}
 
@@ -79,13 +63,9 @@ class AdminModelResponse(BaseModel):
 
     id: int
     public_name: str = Field(..., alias="publicName")
-    provider_id: int = Field(..., alias="providerId")
-    provider_name: str = Field(..., alias="providerName")
-    provider_model_id: str = Field(..., alias="providerModelId")
     description: str | None = None
     input_price: int = Field(..., alias="inputPrice")
     output_price: int = Field(..., alias="outputPrice")
-    multiplier: float
     status: str
     created_at: str = Field(..., alias="createdAt")
 
