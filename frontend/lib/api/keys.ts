@@ -50,3 +50,17 @@ export function useRevokeKey() {
     },
   });
 }
+
+// --- Base URL ---
+
+export interface BaseUrlResponse {
+  baseUrl: string;
+}
+
+export function useBaseUrl() {
+  return useQuery<BaseUrlResponse, ApiClientError>({
+    queryKey: ["baseUrl"],
+    queryFn: () => apiClient<BaseUrlResponse>("/public-url"),
+    staleTime: Infinity,
+  });
+}

@@ -1,12 +1,19 @@
 """Dependency injection for FastAPI — DB-backed API key auth."""
 
+import asyncio
+import logging
+from datetime import datetime, timezone
+
 from fastapi import Depends, HTTPException, Request
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import Settings
 from config.settings import get_settings as _get_settings
 from providers.registry import ProviderRegistry
+
+logger = logging.getLogger("cloude-gateway.auth")
+API_KEY_TOUCH_TIMEOUT_SECONDS = 1.0
 
 
 def get_settings() -> Settings:
@@ -18,6 +25,30 @@ async def get_db(request: Request) -> AsyncSession:
     session_factory = request.app.state.db_session_factory
     async with session_factory() as session:
         yield session
+
+
+async def _touch_api_key_last_used_once(session_factory, api_key_id: int) -> None:
+    from app.models.api_key import ApiKey
+
+    async with session_factory() as session:
+        await session.execute(
+            update(ApiKey)
+            .where(ApiKey.id == api_key_id)
+            .values(last_used_at=datetime.now(timezone.utc))
+        )
+        await session.commit()
+
+
+async def _touch_api_key_last_used(session_factory, api_key_id: int) -> None:
+    try:
+        await asyncio.wait_for(
+            _touch_api_key_last_used_once(session_factory, api_key_id),
+            timeout=API_KEY_TOUCH_TIMEOUT_SECONDS,
+        )
+    except TimeoutError:
+        logger.warning("Skipped API key last_used_at update after lock timeout")
+    except Exception:
+        logger.exception("Failed to update API key last_used_at")
 
 
 async def require_api_key(
@@ -33,7 +64,11 @@ async def require_api_key(
     from app.models.api_key import ApiKey
     from app.models.user import User
 
-    header = request.headers.get("x-api-key") or request.headers.get("authorization")
+    header = (
+        request.headers.get("x-api-key")
+        or request.headers.get("authorization")
+        or request.headers.get("anthropic-auth-token")
+    )
     if not header:
         raise HTTPException(status_code=401, detail="Missing API key")
 
@@ -43,6 +78,8 @@ async def require_api_key(
         token = header.split(" ", 1)[1]
 
     token = token.strip()
+    if ":" in token:
+        token = token.split(":", 1)[0]
     if not token.startswith("sk-"):
         raise HTTPException(status_code=401, detail="Invalid API key format")
 
@@ -63,11 +100,9 @@ async def require_api_key(
             if user is None:
                 raise HTTPException(status_code=401, detail="User not found or inactive")
 
-            # Update last_used_at
-            from datetime import datetime
-
-            ak.last_used_at = datetime.utcnow()
-            await db.flush()
+            session_factory = getattr(request.app.state, "db_session_factory", None)
+            if session_factory is not None:
+                asyncio.create_task(_touch_api_key_last_used(session_factory, ak.id))
 
             return user, ak
 

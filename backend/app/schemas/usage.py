@@ -17,6 +17,7 @@ class UsageStatsResponse(BaseModel):
     today_tokens: int = Field(..., alias="todayTokens")
     today_cost_cents: int = Field(..., alias="todayCostCents")
     active_keys: int = Field(..., alias="activeKeys")
+    balance_cents: int = Field(..., alias="balanceCents")
     daily: list[DailyStat]
 
     model_config = {"populate_by_name": True}

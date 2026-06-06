@@ -84,6 +84,12 @@ class Settings(BaseSettings):
         default=["http://localhost:3000"], validation_alias="CORS_ORIGINS"
     )
 
+    # ==================== Public URL ====================
+    public_url: str = Field(
+        default="http://localhost:8082",
+        validation_alias="PUBLIC_URL",
+    )
+
     # ==================== DeepSeek ====================
     deepseek_api_key: str = Field(default="", validation_alias="DEEPSEEK_API_KEY")
     deepseek_cache_creation_max_input_multiplier: int = Field(

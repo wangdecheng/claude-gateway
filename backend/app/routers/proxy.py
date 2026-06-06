@@ -1,5 +1,6 @@
 """POST /v1/messages — Anthropic-compatible chat proxy with streaming billing."""
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, Request
@@ -16,6 +17,7 @@ from app.models.provider import Provider, ProviderKey
 from app.models.user import User
 from config.settings import get_settings
 from core.anthropic.sse import ANTHROPIC_SSE_RESPONSE_HEADERS
+from core.trace import trace_event
 from providers.registry import ProviderRegistry
 
 logger = logging.getLogger("cloude-gateway.proxy")
@@ -26,6 +28,78 @@ router = APIRouter(tags=["proxy"])
 MAX_COST_CENTS = 20_000
 # Minimum balance threshold for pre-flight check
 MIN_BALANCE_THRESHOLD_CENTS = 100  # ¥1.00
+
+
+async def _settle_billing(
+    *,
+    session_factory,
+    user_id: int,
+    api_key_id: int,
+    model_name: str,
+    reserve_amount: int,
+    input_tokens: int,
+    output_tokens: int,
+    cache_read_tokens: int,
+    input_price_micro_yuan: int,
+    output_price_micro_yuan: int,
+    cache_read_price_micro_yuan: int,
+) -> None:
+    """Settle usage in a fresh transaction after the streaming response ends."""
+    from app.services.billing_service import compute_cost
+    from app.services.usage_service import record_usage
+
+    actual_cost = compute_cost(
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        input_price_micro_yuan=input_price_micro_yuan,
+        output_price_micro_yuan=output_price_micro_yuan,
+        cache_read_tokens=cache_read_tokens,
+        cache_read_price_micro_yuan=cache_read_price_micro_yuan,
+        channel_multiplier=1.0,
+    )
+    actual_cost = min(actual_cost, MAX_COST_CENTS)
+
+    async with session_factory() as settlement_db:
+        try:
+            user_result = await settlement_db.execute(
+                select(User).where(User.id == user_id).with_for_update()
+            )
+            locked_user = user_result.scalar_one()
+            locked_user.balance = locked_user.balance + reserve_amount - actual_cost
+
+            await record_usage(
+                db=settlement_db,
+                user_id=user_id,
+                api_key_id=api_key_id,
+                model=model_name,
+                request_tokens=input_tokens,
+                response_tokens=output_tokens,
+                cost_cents=actual_cost,
+            )
+
+            await settlement_db.commit()
+            logger.info(
+                "Billing settled: user=%d model=%s input=%d output=%d cost=%d cents balance=%d",
+                user_id,
+                model_name,
+                input_tokens,
+                output_tokens,
+                actual_cost,
+                locked_user.balance,
+            )
+        except Exception:
+            await settlement_db.rollback()
+            logger.exception("Billing settlement failed: user=%d model=%s", user_id, model_name)
+            raise
+
+
+def _log_background_settlement_failure(task: asyncio.Task[None]) -> None:
+    try:
+        task.result()
+    except asyncio.CancelledError:
+        logger.error("Billing settlement background task was cancelled")
+    except Exception:
+        logger.exception("Billing settlement background task failed")
 
 
 async def _lookup_model(db: AsyncSession, model_name: str) -> Model | None:
@@ -54,7 +128,7 @@ async def _get_active_upstream_key(
             )
         )
         keys = result.scalars().all()
-    else:
+    if not channel_id or not keys:
         result = await db.execute(
             select(ProviderKey).where(
                 ProviderKey.provider_id == provider_id,
@@ -127,28 +201,56 @@ async def create_message(
     reserve_amount = min(estimated_cost, locked_balance)
     user.balance = locked_balance - reserve_amount
     await db.flush()
+    await db.commit()
+    trace_event(
+        stage="billing",
+        event="proxy.billing.reservation_committed",
+        source="api",
+        user_id=user.id,
+        model=body.model,
+        reserve_amount=reserve_amount,
+    )
 
     # ── 7. Get or create provider instance ────────────────────
+    trace_event(
+        stage="routing",
+        event="proxy.provider.resolve_start",
+        source="api",
+        provider_id=routed.provider_id,
+        model=body.model,
+    )
     provider_instance = registry.get(
-        routed.resolved.provider_id,
+        routed.provider_id,
         api_key=upstream_api_key,
         base_url=provider.api_base_url or None,
     )
+    provider_body = body.model_copy(update={"model": routed.provider_model}, deep=True)
 
     # ── 8. Store provider on request.state for api/routes.py resolution ──
     request.state.active_provider = provider_instance
 
     # ── 9. Stream response, accumulate usage ──────────────────
-    from app.services.billing_service import compute_cost
-    from app.services.usage_service import record_usage
-
     accumulated_usage = {"input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0}
+    session_factory = request.app.state.db_session_factory
+    user_id = user.id
+    api_key_id = api_key.id
+    input_price = model.input_price
+    output_price = model.output_price
+    cache_read_price = model.cache_read_price
 
     async def billing_stream():
         nonlocal accumulated_usage
         try:
+            trace_event(
+                stage="egress",
+                event="proxy.stream.start",
+                source="api",
+                provider_id=routed.provider_id,
+                gateway_model=body.model,
+                provider_model=routed.provider_model,
+            )
             async for chunk in provider_instance.stream_response(
-                body,
+                provider_body,
                 request_id=f"req_{body.model}",
             ):
                 yield chunk
@@ -158,40 +260,26 @@ async def create_message(
             output_tokens = accumulated_usage["output_tokens"] or 0
             cache_read_tokens = accumulated_usage["cache_read_tokens"] or 0
 
-            actual_cost = compute_cost(
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                input_price_micro_yuan=model.input_price,
-                output_price_micro_yuan=model.output_price,
-                cache_read_tokens=cache_read_tokens,
-                cache_read_price_micro_yuan=model.cache_read_price,
-                channel_multiplier=1.0,
+            settlement_task = asyncio.create_task(
+                _settle_billing(
+                    session_factory=session_factory,
+                    user_id=user_id,
+                    api_key_id=api_key_id,
+                    model_name=body.model,
+                    reserve_amount=reserve_amount,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    cache_read_tokens=cache_read_tokens,
+                    input_price_micro_yuan=input_price,
+                    output_price_micro_yuan=output_price,
+                    cache_read_price_micro_yuan=cache_read_price,
+                )
             )
-            actual_cost = min(actual_cost, MAX_COST_CENTS)
-
-            # Deduct actual cost
-            user.balance = locked_balance - actual_cost
-
-            await record_usage(
-                db=db,
-                user_id=user.id,
-                api_key_id=api_key.id,
-                model=body.model,
-                request_tokens=input_tokens,
-                response_tokens=output_tokens,
-                cost_cents=actual_cost,
-            )
-
-            await db.commit()
-            logger.info(
-                "Billing settled: user=%d model=%s input=%d output=%d cost=%d cents balance=%d",
-                user.id,
-                body.model,
-                input_tokens,
-                output_tokens,
-                actual_cost,
-                user.balance,
-            )
+            try:
+                await asyncio.shield(settlement_task)
+            except asyncio.CancelledError:
+                settlement_task.add_done_callback(_log_background_settlement_failure)
+                raise
 
     return StreamingResponse(
         billing_stream(),

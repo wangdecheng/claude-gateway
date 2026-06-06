@@ -14,6 +14,15 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
 
+def _canonical_provider_id(provider_name: str) -> str:
+    from config.provider_ids import SUPPORTED_PROVIDER_IDS
+
+    normalized = provider_name.strip().lower()
+    if normalized in SUPPORTED_PROVIDER_IDS:
+        return normalized
+    return provider_name
+
+
 @dataclass(frozen=True, slots=True)
 class ResolvedModel:
     original_model: str
@@ -130,9 +139,9 @@ class ModelRouter:
 
         return ResolvedModel(
             original_model=model_name,
-            provider_id=provider.name,
+            provider_id=_canonical_provider_id(provider.name),
             provider_model=channel.provider_model_id,
-            provider_model_ref=f"{provider.name}/{channel.provider_model_id}",
+            provider_model_ref=f"{_canonical_provider_id(provider.name)}/{channel.provider_model_id}",
             thinking_enabled=self._settings.enable_model_thinking,
             db_model_id=model.id,
             db_provider_id=provider.id,

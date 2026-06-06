@@ -15,6 +15,7 @@ export interface UsageStats {
   todayTokens: number;
   todayCostCents: number;
   activeKeys: number;
+  balanceCents: number;
   daily: DailyStat[];
 }
 

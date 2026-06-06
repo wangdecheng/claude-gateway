@@ -32,6 +32,7 @@ async def usage_stats(
         "todayTokens": stats["today_tokens"],
         "todayCostCents": stats["today_cost_cents"],
         "activeKeys": stats["active_keys"],
+        "balanceCents": user.balance,
         "daily": [
             {
                 "date": d["date"],

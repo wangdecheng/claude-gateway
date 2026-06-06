@@ -104,6 +104,22 @@ async def health():
     return {"status": "healthy"}
 
 
+@router.api_route("/health", methods=["HEAD", "OPTIONS"])
+async def probe_health():
+    return Response(status_code=204, headers={"Allow": "GET, HEAD, OPTIONS"})
+
+
+@router.get("/api/public-url")
+async def get_public_url(settings: Settings = Depends(get_settings)):
+    """Return the gateway's public base URL for client configuration."""
+    return {"baseUrl": settings.public_url}
+
+
 @router.get("/")
 async def root(settings: Settings = Depends(get_settings), _auth=Depends(require_api_key)):
     return {"status": "ok", "provider": settings.provider_type, "model": settings.model_name}
+
+
+@router.api_route("/", methods=["HEAD", "OPTIONS"])
+async def probe_root():
+    return Response(status_code=204, headers={"Allow": "GET, HEAD, OPTIONS"})

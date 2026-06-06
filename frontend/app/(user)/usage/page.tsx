@@ -71,12 +71,12 @@ export default function UsagePage() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-neutral-text-secondary">
-              活跃 sk
+              当前余额
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="font-mono text-2xl font-bold">
-              {statsLoading ? "—" : stats?.activeKeys ?? 0}
+            <p className="font-mono text-2xl font-bold text-green-600 dark:text-green-400">
+              {statsLoading ? "—" : formatPrice(stats?.balanceCents ?? 0)}
             </p>
           </CardContent>
         </Card>
