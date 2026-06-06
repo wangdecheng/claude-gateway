@@ -1,0 +1,41 @@
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+
+# Code intelligence
+.codegraph/
+.understand-anything/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+*.egg
+
+# Node
+node_modules/
+.next/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Database
+test.db
+*.db
+
+# Build output
+dist/
+build/
+
+# Logs
+*.log
+
+# Misc
+*.tmp

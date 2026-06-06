@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+/* Load legacy v3 config (theme, colors, fonts, plugins including tailwindcss-animate) */
+@config "../tailwind.config.ts";
+
+/* ===== DESIGN.md Visual Tokens ===== */
+
+:root {
+  /* Primary */
+  --color-primary-base: #1e40af;
+  --color-primary-light: #3b82f6;
+  --color-primary-subtle: #dbeafe;
+
+  /* Neutral */
+  --color-neutral-bg: #f8fafc;
+  --color-neutral-surface: #ffffff;
+  --color-neutral-border: #e2e8f0;
+  --color-neutral-text-primary: #0f172a;
+  --color-neutral-text-secondary: #475569;
+  --color-neutral-text-muted: #94a3b8;
+  --color-neutral-code-bg: #1e293b;
+
+  /* Semantic */
+  --color-success: #16a34a;
+  --color-warning: #ea580c;
+  --color-error: #dc2626;
+  --color-info: #0284c7;
+
+  /* Typography */
+  --font-primary: 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Spacing (4px base) */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --space-24: 6rem;
+
+  /* Shapes */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-full: 9999px;
+
+  /* Elevation */
+  --elevation-card: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --elevation-dropdown: 0 4px 12px rgba(0, 0, 0, 0.1);
+  --elevation-modal: 0 8px 24px rgba(0, 0, 0, 0.15);
+}
+
+/* Base styles */
+body {
+  font-family: var(--font-primary);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--color-neutral-text-primary);
+  background-color: var(--color-neutral-bg);
+}
