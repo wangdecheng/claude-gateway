@@ -238,6 +238,10 @@ async def create_message(
     output_price = model.output_price
     cache_read_price = model.cache_read_price
 
+    _provider_model = routed.provider_model
+    _original_model = body.model
+    _remap_model = _provider_model != _original_model
+
     async def billing_stream():
         nonlocal accumulated_usage
         try:
@@ -253,7 +257,10 @@ async def create_message(
                 provider_body,
                 request_id=f"req_{body.model}",
             ):
-                yield chunk
+                if _remap_model:
+                    yield chunk.replace(_provider_model, _original_model)
+                else:
+                    yield chunk
         finally:
             # Extract usage from accumulated SSE events
             input_tokens = accumulated_usage["input_tokens"] or 100
