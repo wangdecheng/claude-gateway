@@ -1,6 +1,7 @@
 """POST /v1/messages — Anthropic-compatible chat proxy with streaming billing."""
 
 import asyncio
+import json
 import logging
 
 from fastapi import APIRouter, Depends, Request
@@ -30,6 +31,32 @@ MAX_COST_CENTS = 20_000
 MIN_BALANCE_THRESHOLD_CENTS = 100  # ¥1.00
 
 
+def _extract_usage_from_sse_line(line: str) -> dict[str, int] | None:
+    """Parse usage from a message_delta data line in the SSE stream.
+
+    The provider splits SSE events into individual lines; this function
+    matches a ``data: {..., "type": "message_delta", ...}`` line and
+    extracts usage fields.
+    """
+    if not line.startswith("data:"):
+        return None
+    try:
+        payload = json.loads(line.removeprefix("data:").strip())
+    except json.JSONDecodeError:
+        return None
+    if payload.get("type") != "message_delta":
+        return None
+    usage = payload.get("usage")
+    if not isinstance(usage, dict):
+        return None
+    return {
+        "input_tokens": usage.get("input_tokens", 0),
+        "output_tokens": usage.get("output_tokens", 0),
+        "cache_read_input_tokens": usage.get("cache_read_input_tokens", 0),
+        "cache_creation_input_tokens": usage.get("cache_creation_input_tokens", 0),
+    }
+
+
 async def _settle_billing(
     *,
     session_factory,
@@ -40,6 +67,7 @@ async def _settle_billing(
     input_tokens: int,
     output_tokens: int,
     cache_read_tokens: int,
+    cache_creation_tokens: int,
     input_price_micro_yuan: int,
     output_price_micro_yuan: int,
     cache_read_price_micro_yuan: int,
@@ -72,8 +100,10 @@ async def _settle_billing(
                 user_id=user_id,
                 api_key_id=api_key_id,
                 model=model_name,
-                request_tokens=input_tokens,
-                response_tokens=output_tokens,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cache_read_tokens=cache_read_tokens,
+                cache_creation_tokens=cache_creation_tokens,
                 cost_cents=actual_cost,
             )
 
@@ -230,7 +260,12 @@ async def create_message(
     request.state.active_provider = provider_instance
 
     # ── 9. Stream response, accumulate usage ──────────────────
-    accumulated_usage = {"input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0}
+    accumulated_usage = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_read_tokens": 0,
+        "cache_creation_tokens": 0,
+    }
     session_factory = request.app.state.db_session_factory
     user_id = user.id
     api_key_id = api_key.id
@@ -257,6 +292,15 @@ async def create_message(
                 provider_body,
                 request_id=f"req_{body.model}",
             ):
+                # Parse usage from message_delta data lines
+                usage = _extract_usage_from_sse_line(chunk)
+                if usage:
+                    accumulated_usage["input_tokens"] = usage["input_tokens"]
+                    accumulated_usage["output_tokens"] = usage["output_tokens"]
+                    accumulated_usage["cache_read_tokens"] = usage["cache_read_input_tokens"]
+                    accumulated_usage["cache_creation_tokens"] = (
+                        usage["cache_creation_input_tokens"]
+                    )
                 if _remap_model:
                     yield chunk.replace(_provider_model, _original_model)
                 else:
@@ -266,6 +310,7 @@ async def create_message(
             input_tokens = accumulated_usage["input_tokens"] or 100
             output_tokens = accumulated_usage["output_tokens"] or 0
             cache_read_tokens = accumulated_usage["cache_read_tokens"] or 0
+            cache_creation_tokens = accumulated_usage["cache_creation_tokens"] or 0
 
             settlement_task = asyncio.create_task(
                 _settle_billing(
@@ -277,6 +322,7 @@ async def create_message(
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
                     cache_read_tokens=cache_read_tokens,
+                    cache_creation_tokens=cache_creation_tokens,
                     input_price_micro_yuan=input_price,
                     output_price_micro_yuan=output_price,
                     cache_read_price_micro_yuan=cache_read_price,
