@@ -2,23 +2,48 @@
 
 import { useState } from "react";
 import { Copy, Ticket } from "lucide-react";
+import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { InlineToast, type InlineToastVariant } from "@/components/ui/InlineToast";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ApiClientError } from "@/lib/api/client";
 import {
+  useAdminRedemptionList,
   useCreateAdminRedemptionCode,
   type AdminRedemptionCreateResult,
+  type AdminRedemptionListItem,
 } from "@/lib/api/admin/redemption";
+import { copyToClipboard } from "@/lib/utils/clipboard";
 import { formatDate, formatPrice } from "@/lib/utils/format";
+
+interface ToastState {
+  variant: InlineToastVariant;
+  message: string;
+  /** Bumped on every show so an identical consecutive copy still re-fires. */
+  key: number;
+}
+
+const STATUS_META: Record<string, { label: string; variant: BadgeVariant }> = {
+  issued: { label: "未使用", variant: "success" },
+  used: { label: "已使用", variant: "muted" },
+  expired: { label: "已过期", variant: "error" },
+};
+
+function statusBadge(status: string) {
+  const meta = STATUS_META[status] ?? { label: status, variant: "muted" as BadgeVariant };
+  return <Badge variant={meta.variant}>{meta.label}</Badge>;
+}
 
 export default function AdminRedemptionPage() {
   const createMutation = useCreateAdminRedemptionCode();
+  const listQuery = useAdminRedemptionList();
   const [amountYuan, setAmountYuan] = useState("");
   const [expiresInDays, setExpiresInDays] = useState("5");
   const [result, setResult] = useState<AdminRedemptionCreateResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [toast, setToast] = useState<ToastState | null>(null);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -54,12 +79,35 @@ export default function AdminRedemptionPage() {
 
   const handleCopy = async () => {
     if (!result) return;
-    await navigator.clipboard.writeText(result.code);
-    setCopied(true);
+    const ok = await copyToClipboard(result.code);
+    if (ok) {
+      setCopied(true);
+      setToast({
+        variant: "success",
+        message: "兑换码已复制到剪贴板",
+        key: Date.now(),
+      });
+      setTimeout(() => setCopied(false), 2000);
+    } else {
+      setToast({
+        variant: "error",
+        message: "复制失败，请手动选择上方兑换码复制",
+        key: Date.now(),
+      });
+    }
   };
+
+  const items: AdminRedemptionListItem[] = listQuery.data ?? [];
 
   return (
     <div className="space-y-6">
+      <InlineToast
+        open={toast !== null}
+        variant={toast?.variant ?? "success"}
+        message={toast?.message ?? ""}
+        onClose={() => setToast(null)}
+      />
+
       <div>
         <h1 className="text-2xl font-semibold text-neutral-text-primary">
           兑换码管理
@@ -132,7 +180,7 @@ export default function AdminRedemptionPage() {
           </div>
 
           <div className="mt-5 rounded-md border border-slate-200 bg-slate-50 p-4">
-            <div className="break-all font-mono text-lg font-semibold tracking-wide text-neutral-text-primary">
+            <div className="break-all font-mono text-lg font-semibold tracking-wide text-neutral-text-primary select-all">
               {result.code}
             </div>
           </div>
@@ -159,6 +207,90 @@ export default function AdminRedemptionPage() {
           </dl>
         </div>
       )}
+
+      <section className="space-y-3">
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-lg font-semibold text-neutral-text-primary">生成记录</h2>
+          <p className="text-xs text-neutral-text-secondary">
+            完整兑换码仅显示一次，此处为脱敏前缀
+          </p>
+        </div>
+
+        <div className="rounded-lg border border-slate-200 bg-white">
+          {listQuery.isLoading ? (
+            <div className="px-4 py-12 text-center text-sm text-neutral-text-secondary">
+              加载中...
+            </div>
+          ) : listQuery.error ? (
+            <div className="px-4 py-6 text-sm text-red-600">
+              加载失败：{listQuery.error.message || "未知错误"}
+            </div>
+          ) : (
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50 text-left text-sm text-neutral-text-secondary">
+                  <th className="px-4 py-3 font-medium">兑换码前缀</th>
+                  <th className="px-4 py-3 text-right font-medium">金额</th>
+                  <th className="px-4 py-3 font-medium">状态</th>
+                  <th className="px-4 py-3 font-medium">过期时间</th>
+                  <th className="px-4 py-3 font-medium">创建时间</th>
+                  <th className="px-4 py-3 font-medium">创建人</th>
+                  <th className="px-4 py-3 font-medium">使用人</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.length === 0 && (
+                  <tr>
+                    <td
+                      colSpan={7}
+                      className="px-4 py-12 text-center text-sm text-neutral-text-secondary"
+                    >
+                      暂无生成记录
+                    </td>
+                  </tr>
+                )}
+                {items.map((item) => (
+                  <tr
+                    key={item.id}
+                    className="border-b border-slate-100 text-sm hover:bg-slate-50/50"
+                  >
+                    <td className="px-4 py-3 font-mono text-sm text-neutral-text-primary">
+                      {item.codePrefix}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono text-sm">
+                      {formatPrice(item.amount)}
+                    </td>
+                    <td className="px-4 py-3">{statusBadge(item.status)}</td>
+                    <td className="px-4 py-3 text-neutral-text-secondary">
+                      {formatDate(item.expiresAt)}
+                    </td>
+                    <td className="px-4 py-3 text-neutral-text-secondary">
+                      {formatDate(item.createdAt)}
+                    </td>
+                    <td className="px-4 py-3 text-neutral-text-secondary">
+                      {item.createdByEmail ?? "—"}
+                    </td>
+                    <td className="px-4 py-3 text-neutral-text-secondary">
+                      {item.usedByEmail ? (
+                        <span>
+                          {item.usedByEmail}
+                          {item.usedAt && (
+                            <span className="ml-2 text-xs text-neutral-text-secondary">
+                              {formatDate(item.usedAt)}
+                            </span>
+                          )}
+                        </span>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </section>
     </div>
   );
 }
