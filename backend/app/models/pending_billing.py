@@ -36,7 +36,7 @@ class GUID(TypeDecorator):
 
 
 class PendingBilling(Base):
-    __tablename__ = "pending_billing"
+    __tablename__ = "pending_billings"
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     request_id: Mapped[uuid.UUID] = mapped_column(
