@@ -7,8 +7,13 @@ and write an append-only RequestLog entry.
 Story 3-2: BillingRecord is created synchronously within each API request,
 recording the post-deduction balance as the audit ledger entry.
 
-Cost formula (per Story 3.1 AC):
-    cost = input × input_price + output × output_price × channel.multiplier
+Cost formula:
+    cost = ((input_tokens + cache_creation_tokens + cache_read_tokens / 10)
+              × input_price
+            + output_tokens × output_price) × channel.multiplier
+
+    cache_read is charged at 1/10 of the input rate (i.e. 10% / 1折).
+    cache_creation is charged at the full input rate.
 
 Prices are stored in micro-yuan per 1K tokens; cost is returned in cents (分).
 """
@@ -29,26 +34,27 @@ logger = logging.getLogger("high-api.billing")
 # ── Token extraction ──────────────────────────────────────────────
 
 
-def extract_usage(upstream_response_body: dict) -> tuple[int, int, int, bool]:
-    """Extract (input_tokens, output_tokens, cache_read_tokens, is_valid) from upstream response.
+def extract_usage(upstream_response_body: dict) -> tuple[int, int, int, int, bool]:
+    """Extract (input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, is_valid).
 
     Supports both Anthropic (usage.input_tokens / usage.output_tokens /
-    usage.cache_read_input_tokens) and OpenAI (usage.prompt_tokens /
-    usage.completion_tokens) formats.
+    usage.cache_read_input_tokens / usage.cache_creation_input_tokens) and
+    OpenAI (usage.prompt_tokens / usage.completion_tokens) formats.
 
     Returns:
-        (input_tokens, output_tokens, cache_read_tokens, is_valid)
+        (input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, is_valid)
         is_valid is False when the usage field is missing or malformed.
     """
     try:
         usage = upstream_response_body.get("usage")
         if not isinstance(usage, dict):
-            return 0, 0, 0, False
+            return 0, 0, 0, 0, False
 
         # Anthropic format (preferred)
         input_tokens = usage.get("input_tokens")
         output_tokens = usage.get("output_tokens")
         cache_read_tokens = usage.get("cache_read_input_tokens", 0)
+        cache_creation_tokens = usage.get("cache_creation_input_tokens", 0)
 
         # Also support OpenAI format (prompt_tokens/completion_tokens)
         # Fall back only when Anthropic fields are absent
@@ -59,22 +65,24 @@ def extract_usage(upstream_response_body: dict) -> tuple[int, int, int, bool]:
 
         # Both must be non-negative integers
         if not isinstance(input_tokens, int) or not isinstance(output_tokens, int):
-            return 0, 0, 0, False
+            return 0, 0, 0, 0, False
         if input_tokens < 0 or output_tokens < 0:
-            return 0, 0, 0, False
+            return 0, 0, 0, 0, False
 
         # At least one token should have been consumed
         if input_tokens == 0 and output_tokens == 0:
-            return 0, 0, 0, False
+            return 0, 0, 0, 0, False
 
-        # Ensure cache_read_tokens is a non-negative int
+        # Ensure cache counters are non-negative ints
         if not isinstance(cache_read_tokens, int) or cache_read_tokens < 0:
             cache_read_tokens = 0
+        if not isinstance(cache_creation_tokens, int) or cache_creation_tokens < 0:
+            cache_creation_tokens = 0
 
-        return input_tokens, output_tokens, cache_read_tokens, True
+        return input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, True
 
     except (KeyError, TypeError, AttributeError):
-        return 0, 0, 0, False
+        return 0, 0, 0, 0, False
 
 
 # ── Cost computation ───────────────────────────────────────────────
@@ -87,24 +95,23 @@ def compute_cost(
     output_price_micro_yuan: int,
     channel_multiplier: float = 1.0,
     cache_read_tokens: int = 0,
-    cache_read_price_micro_yuan: int = 0,
+    cache_creation_tokens: int = 0,
 ) -> int:
     """Compute request cost in cents (分), rounding up.
 
-    Three-segment pricing:
-      cost = (input_tokens × input_price
-            + output_tokens × output_price
-            + cache_read_tokens × cache_read_price) × channel_multiplier
+    Pricing (cache_creation at input rate, cache_read at 1/10 input rate):
+      cost = ((input_tokens + cache_creation_tokens + cache_read_tokens / 10)
+                × input_price
+              + output_tokens × output_price) × channel_multiplier
 
     All prices are in micro yuan per 1K tokens. Result is in cents.
     """
-    # Prices are in micro yuan per 1K tokens
-    input_cost_uy = (input_tokens / 1000.0) * input_price_micro_yuan
-    output_cost_uy = (output_tokens / 1000.0) * output_price_micro_yuan
-    cache_read_cost_uy = (cache_read_tokens / 1000.0) * cache_read_price_micro_yuan
-
-    total_micro_yuan = (input_cost_uy + output_cost_uy + cache_read_cost_uy) * channel_multiplier
-    cost_cents = math.ceil(total_micro_yuan / 10_000)
+    effective_input = input_tokens + cache_creation_tokens + cache_read_tokens / 10.0
+    base_micro_yuan = (
+        (effective_input / 1000.0) * input_price_micro_yuan
+        + (output_tokens / 1000.0) * output_price_micro_yuan
+    )
+    cost_cents = math.ceil(base_micro_yuan * channel_multiplier / 10_000)
     return max(0, cost_cents)
 
 
@@ -182,6 +189,7 @@ async def process_token_recording(
     input_tokens: int | None = None,
     output_tokens: int | None = None,
     cache_read_tokens: int | None = None,
+    cache_creation_tokens: int | None = None,
     cost_cents: int | None = None,
 ) -> RequestLog:
     """Extract tokens from upstream response, compute cost, and record RequestLog.
@@ -200,6 +208,7 @@ async def process_token_recording(
         input_tokens: Pre-extracted input token count (skips re-extraction if provided).
         output_tokens: Pre-extracted output token count.
         cache_read_tokens: Pre-extracted cache read token count.
+        cache_creation_tokens: Pre-extracted cache creation token count.
         cost_cents: Pre-computed cost in cents (skips re-computation if provided).
 
     Returns:
@@ -211,8 +220,11 @@ async def process_token_recording(
         _input = input_tokens
         _output = output_tokens
         _cache_read = cache_read_tokens or 0
+        _cache_creation = cache_creation_tokens or 0
     else:
-        _input, _output, _cache_read, usage_valid = extract_usage(upstream_response_body)
+        _input, _output, _cache_read, _cache_creation, usage_valid = extract_usage(
+            upstream_response_body
+        )
 
     if not usage_valid:
         logger.warning(
@@ -238,7 +250,7 @@ async def process_token_recording(
     if cost_cents is None:
         # Look up model pricing
         model_result = await db.execute(
-            select(Model.input_price, Model.output_price, Model.cache_read_price).where(
+            select(Model.input_price, Model.output_price).where(
                 Model.id == model_id
             )
         )
@@ -260,10 +272,9 @@ async def process_token_recording(
             )
 
         # Compute cost with channel multiplier
-        input_price, output_price, cache_read_price = (
+        input_price, output_price = (
             model_row.input_price,
             model_row.output_price,
-            model_row.cache_read_price,
         )
         cost_cents = compute_cost(
             input_tokens=_input,
@@ -272,7 +283,7 @@ async def process_token_recording(
             output_price_micro_yuan=output_price,
             channel_multiplier=channel_config.multiplier,
             cache_read_tokens=_cache_read,
-            cache_read_price_micro_yuan=cache_read_price,
+            cache_creation_tokens=_cache_creation,
         )
 
     # 4. Record RequestLog

@@ -17,32 +17,28 @@ def compute_cost(
     cache_creation_tokens: int,
     input_price_micro_yuan: int,
     output_price_micro_yuan: int,
-    cache_read_price_micro_yuan: int,
-    cache_creation_price_micro_yuan: int,
     channel_multiplier: float = 1.0,
 ) -> int:
     """Compute the cost in cents for a single request, rounding up.
 
-    The caller is responsible for setting ``cache_creation_price_micro_yuan``
-    to whatever they want to charge (industry default: input_price).
+    Pricing (cache_creation at input rate, cache_read at 1/10 input rate):
+      cost = ((input_tokens + cache_creation_tokens + cache_read_tokens / 10)
+                × input_price
+              + output_tokens × output_price) × channel_multiplier
     """
-    base = (
-        input_tokens / 1000.0 * input_price_micro_yuan
-        + output_tokens / 1000.0 * output_price_micro_yuan
-        + cache_read_tokens / 1000.0 * cache_read_price_micro_yuan
-        + cache_creation_tokens / 1000.0 * cache_creation_price_micro_yuan
+    effective_input = input_tokens + cache_creation_tokens + cache_read_tokens / 10.0
+    base_micro_yuan = (
+        (effective_input / 1000.0) * input_price_micro_yuan
+        + (output_tokens / 1000.0) * output_price_micro_yuan
     )
-    return max(0, math.ceil(base * channel_multiplier / 10_000))
+    return max(0, math.ceil(base_micro_yuan * channel_multiplier / 10_000))
 
 
 async def compute_costs_for_pending(
     pending: "PendingBilling",  # noqa: F821 — forward ref
     db: AsyncSession,
 ) -> int:
-    """Load channel multiplier and model prices, then call compute_cost.
-
-    cache_creation_price is set to input_price (industry default).
-    """
+    """Load channel multiplier and model prices, then call compute_cost."""
     from app.models.model import ChannelConfig, Model
 
     channel = await db.scalar(
@@ -56,7 +52,5 @@ async def compute_costs_for_pending(
         cache_creation_tokens=pending.cache_creation_tokens,
         input_price_micro_yuan=model.input_price,
         output_price_micro_yuan=model.output_price,
-        cache_read_price_micro_yuan=model.cache_read_price,
-        cache_creation_price_micro_yuan=model.input_price,
         channel_multiplier=channel.multiplier,
     )

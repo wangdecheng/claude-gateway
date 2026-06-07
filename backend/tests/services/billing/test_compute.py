@@ -22,8 +22,6 @@ def test_compute_cost_basic_input_output():
         cache_creation_tokens=0,
         input_price_micro_yuan=15000,  # ¥0.015 / 1K
         output_price_micro_yuan=75000,  # ¥0.075 / 1K
-        cache_read_price_micro_yuan=0,
-        cache_creation_price_micro_yuan=15000,
         channel_multiplier=1.0,
     )
     # (1*15000 + 1*75000) * 1.0 = 90000 micro-yuan = 9 cents
@@ -41,49 +39,84 @@ def test_compute_cost_with_multiplier():
         cache_creation_tokens=0,
         input_price_micro_yuan=0,
         output_price_micro_yuan=75000,
-        cache_read_price_micro_yuan=0,
-        cache_creation_price_micro_yuan=0,
         channel_multiplier=0.5,
     )
     # 1*75000 * 0.5 = 37500 micro-yuan = 3.75 cents → ceil = 4
     assert cost == 4
 
 
-def test_compute_cost_cache_creation_charged_at_input_price():
-    """cache_creation uses its own price param (caller passes input_price)."""
+def test_compute_cost_cache_read_charged_at_one_tenth_input():
+    """cache_read is folded into input at 1/10 rate."""
     from app.services.billing.compute import compute_cost
 
+    # 1000 input + 9000 cache_read at 15000 micro-yuan/1K input price.
+    # effective_input = 1000 + 9000/10 = 1900
+    # base = 1.9 * 15000 + 0 = 28500 micro-yuan = 2.85 cents → ceil = 3
     cost = compute_cost(
-        input_tokens=0,
+        input_tokens=1000,
         output_tokens=0,
-        cache_read_tokens=0,
-        cache_creation_tokens=2000,  # 2K cache_creation
+        cache_read_tokens=9000,
+        cache_creation_tokens=0,
         input_price_micro_yuan=15000,
         output_price_micro_yuan=0,
-        cache_read_price_micro_yuan=0,
-        cache_creation_price_micro_yuan=15000,  # passed explicitly
         channel_multiplier=1.0,
     )
-    # 2 * 15000 = 30000 micro-yuan = 3 cents
     assert cost == 3
 
 
-def test_compute_cost_cache_read_at_own_price():
-    """cache_read uses cache_read_price (often 0)."""
+def test_compute_cost_cache_creation_charged_at_input_rate():
+    """cache_creation is charged at the full input rate."""
+    from app.services.billing.compute import compute_cost
+
+    # 1000 input + 2000 cache_creation at 15000 micro-yuan/1K.
+    # effective_input = 1000 + 2000 + 0 = 3000
+    # base = 3 * 15000 = 45000 micro-yuan = 4.5 cents → ceil = 5
+    cost = compute_cost(
+        input_tokens=1000,
+        output_tokens=0,
+        cache_read_tokens=0,
+        cache_creation_tokens=2000,
+        input_price_micro_yuan=15000,
+        output_price_micro_yuan=0,
+        channel_multiplier=1.0,
+    )
+    assert cost == 5
+
+
+def test_compute_cost_combined_cache_creation_and_cache_read():
+    """cache_creation at full input rate, cache_read at 1/10 — combined."""
+    from app.services.billing.compute import compute_cost
+
+    # 1000 input + 2000 cache_creation + 5000 cache_read at 15000/1K.
+    # effective_input = 1000 + 2000 + 5000/10 = 3500
+    # base = 3.5 * 15000 = 52500 micro-yuan = 5.25 cents → ceil = 6
+    cost = compute_cost(
+        input_tokens=1000,
+        output_tokens=0,
+        cache_read_tokens=5000,
+        cache_creation_tokens=2000,
+        input_price_micro_yuan=15000,
+        output_price_micro_yuan=0,
+        channel_multiplier=1.0,
+    )
+    assert cost == 6
+
+
+def test_compute_cost_cache_read_only():
+    """Only cache_read (no fresh input) still costs 1/10 of input rate."""
     from app.services.billing.compute import compute_cost
 
     cost = compute_cost(
         input_tokens=0,
         output_tokens=0,
-        cache_read_tokens=5000,
+        cache_read_tokens=10000,
         cache_creation_tokens=0,
-        input_price_micro_yuan=0,
-        output_price_micro_yuan=0,
-        cache_read_price_micro_yuan=3000,  # ¥0.003 / 1K
-        cache_creation_price_micro_yuan=0,
+        input_price_micro_yuan=15000,
+        output_price_micro_yuan=75000,
         channel_multiplier=1.0,
     )
-    # 5 * 3000 = 15000 micro-yuan = 1.5 → ceil = 2
+    # effective_input = 10000/10 = 1000
+    # base = 1 * 15000 = 15000 micro-yuan = 1.5 cents → ceil = 2
     assert cost == 2
 
 
@@ -98,8 +131,6 @@ def test_compute_cost_zero_tokens_returns_zero():
         cache_creation_tokens=0,
         input_price_micro_yuan=15000,
         output_price_micro_yuan=75000,
-        cache_read_price_micro_yuan=0,
-        cache_creation_price_micro_yuan=15000,
         channel_multiplier=1.0,
     )
     assert cost == 0
@@ -116,8 +147,6 @@ def test_compute_cost_rounds_up():
         cache_creation_tokens=0,
         input_price_micro_yuan=15000,
         output_price_micro_yuan=0,
-        cache_read_price_micro_yuan=0,
-        cache_creation_price_micro_yuan=0,
         channel_multiplier=1.0,
     )
     # 1/1000 * 15000 = 15 micro-yuan = 0.0015 cents → ceil = 1
