@@ -24,12 +24,12 @@ def generate_jwt(user_id: int, role: str) -> str:
         "role": role,
         "exp": datetime.now(timezone.utc) + timedelta(seconds=settings.jwt_expire_seconds),
     }
-    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+    return jwt.encode(payload, settings.jwt_private_key, algorithm=settings.jwt_algorithm)
 
 
 def decode_jwt(token: str) -> dict:
     try:
-        return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+        return jwt.decode(token, settings.jwt_public_key, algorithms=[settings.jwt_algorithm])
     except jwt.ExpiredSignatureError:
         raise AppException(status_code=401, error="登录已过期", code="TOKEN_EXPIRED")
     except jwt.InvalidTokenError:
@@ -89,13 +89,13 @@ def generate_reset_token(user_id: int) -> str:
         "purpose": "password_reset",
         "exp": datetime.now(timezone.utc) + timedelta(minutes=15),
     }
-    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+    return jwt.encode(payload, settings.jwt_private_key, algorithm=settings.jwt_algorithm)
 
 
 def decode_reset_token(token: str) -> dict:
     """Decode and validate a password reset token."""
     try:
-        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+        payload = jwt.decode(token, settings.jwt_public_key, algorithms=[settings.jwt_algorithm])
     except jwt.ExpiredSignatureError:
         raise AppException(
             status_code=400, error="重置链接已过期，请重新申请", code="RESET_TOKEN_EXPIRED"

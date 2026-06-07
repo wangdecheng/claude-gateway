@@ -23,8 +23,9 @@
 | 测试 | `docs/testing.md` | `backend/tests/`, `frontend/tests/` |
 | 整体架构 | `docs/architecture.md` | `backend/api/app.py`, `frontend/middleware.ts` |
 | 速率限制 | `docs/backend-providers.md` § 速率限制 | `backend/providers/rate_limit.py` |
+| 部署 / 推送 | `docs/deploy.md` | `bin/deploy.sh` |
 
-文档: `docs/{architecture,backend-proxy,backend-auth,backend-providers,backend-database,frontend,testing}.md`
+文档: `docs/{architecture,backend-proxy,backend-auth,backend-providers,backend-database,frontend,testing,deploy}.md`
 
 ## Prerequisites
 

@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { jwtVerify } from "jose";
+import { jwtVerify, importSPKI, type KeyLike } from "jose";
 
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || "dev-secret-change-in-production"
-);
+// 公钥只用于验签,即使泄露也无法伪造 token。
+// 从 .env 以 base64 注入(避开 systemd EnvironmentFile 对 \ 的转义),此处 base64 decode 还原 PEM。
+// 后端: RS256 私钥签发 -> JWT -> 此处用公钥验签。
+const PUBLIC_KEY_PEM = process.env.JWT_PUBLIC_KEY_B64
+  ? Buffer.from(process.env.JWT_PUBLIC_KEY_B64, "base64").toString("utf-8")
+  : "";
 
 // Paths that do NOT require authentication
 const PUBLIC_PATHS = ["/login", "/register", "/forgot-password", "/reset-password"];
@@ -12,9 +15,21 @@ const PUBLIC_PATHS = ["/login", "/register", "/forgot-password", "/reset-passwor
 // Paths that require admin role
 const ADMIN_PATHS = ["/admin"];
 
+let publicKeyPromise: Promise<KeyLike> | null = null;
+function getPublicKey() {
+  if (!publicKeyPromise) {
+    publicKeyPromise = importSPKI(PUBLIC_KEY_PEM, "RS256").catch((err) => {
+      publicKeyPromise = null; // 重置以便重试
+      throw err;
+    });
+  }
+  return publicKeyPromise;
+}
+
 async function verifyJwt(token: string) {
   try {
-    const { payload } = await jwtVerify(token, JWT_SECRET);
+    const key = await getPublicKey();
+    const { payload } = await jwtVerify(token, key, { algorithms: ["RS256"] });
     return payload as { user_id: number; role: string };
   } catch {
     return null;

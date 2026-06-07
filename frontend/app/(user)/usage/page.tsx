@@ -154,15 +154,15 @@ export default function UsagePage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-neutral-border text-left text-neutral-text-secondary">
-                      <th className="py-2 font-medium">时间</th>
-                      <th className="py-2 font-medium">模型</th>
-                      <th className="py-2 font-medium">渠道</th>
-                      <th className="py-2 font-medium text-right" title="本次请求中未命中缓存的新输入 token(全部输入命中缓存时为 0)">新输入</th>
-                      <th className="py-2 font-medium text-right">缓存读</th>
-                      <th className="py-2 font-medium text-right">缓存创建</th>
-                      <th className="py-2 font-medium text-right">输出</th>
-                      <th className="py-2 font-medium text-right">费用</th>
-                      <th className="py-2 font-medium" title="上游 Anthropic message.id(message_start 事件),可用于和 Claude Code JSONL 关联">上游消息 ID</th>
+                      <th className="px-3 py-2 font-medium">时间</th>
+                      <th className="px-3 py-2 font-medium">模型</th>
+                      <th className="px-3 py-2 font-medium">渠道</th>
+                      <th className="px-3 py-2 font-medium text-right" title="本次请求中未命中缓存的新输入 token(全部输入命中缓存时为 0)">新输入</th>
+                      <th className="px-3 py-2 font-medium text-right">缓存读</th>
+                      <th className="px-3 py-2 font-medium text-right">缓存创建</th>
+                      <th className="px-3 py-2 font-medium text-right">输出</th>
+                      <th className="px-3 py-2 font-medium text-right">费用</th>
+                      <th className="px-3 py-2 font-medium" title="上游 Anthropic message.id(message_start 事件),可用于和 Claude Code JSONL 关联">上游消息 ID</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -171,11 +171,11 @@ export default function UsagePage() {
                         key={r.id}
                         className="border-b border-neutral-border last:border-0"
                       >
-                        <td className="py-2 text-neutral-text-primary">
+                        <td className="px-3 py-2 text-neutral-text-primary">
                           {formatDate(r.createdAt)}
                         </td>
-                        <td className="py-2 font-mono text-xs">{r.model}</td>
-                        <td className="py-2 text-xs text-neutral-text-secondary">
+                        <td className="px-3 py-2 font-mono text-xs">{r.model}</td>
+                        <td className="px-3 py-2 text-xs text-neutral-text-secondary">
                           {r.channelName || r.channelId ? (
                             <span className="font-mono">
                               {r.channelName || `渠道 ${r.channelId}`}
@@ -184,22 +184,22 @@ export default function UsagePage() {
                             <span className="text-neutral-text-muted">—</span>
                           )}
                         </td>
-                        <td className="py-2 text-right font-mono">
+                        <td className="px-3 py-2 text-right font-mono">
                           {formatTokens(r.inputTokens)}
                         </td>
-                        <td className="py-2 text-right font-mono">
+                        <td className="px-3 py-2 text-right font-mono">
                           {formatTokens(r.cacheReadTokens)}
                         </td>
-                        <td className="py-2 text-right font-mono">
+                        <td className="px-3 py-2 text-right font-mono">
                           {formatTokens(r.cacheCreationTokens)}
                         </td>
-                        <td className="py-2 text-right font-mono">
+                        <td className="px-3 py-2 text-right font-mono">
                           {formatTokens(r.outputTokens)}
                         </td>
-                        <td className="py-2 text-right font-mono">
+                        <td className="px-3 py-2 text-right font-mono">
                           {formatPrice(r.costCents)}
                         </td>
-                        <td className="py-2 font-mono text-xs text-neutral-text-secondary">
+                        <td className="px-3 py-2 font-mono text-xs text-neutral-text-secondary">
                           {r.upstreamMessageId ? (
                             <span title={r.upstreamMessageId}>
                               {r.upstreamMessageId.length > 16

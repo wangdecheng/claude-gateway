@@ -71,10 +71,27 @@ class Settings(BaseSettings):
     )
 
     # ==================== JWT ====================
-    jwt_secret: str = Field(
-        default="dev-secret-change-in-production", validation_alias="JWT_SECRET"
+    # RS256: 后端用 jwt_private_key 签发,前端 middleware 用 jwt_public_key 验签。
+    # PEM 内容从 .env 以 base64 注入(避开 systemd EnvironmentFile 对 \ 的转义),
+    # 此处统一 base64 decode 还原成 PEM。绝对不要把私钥放到前端 bundle 或仓库。
+    @field_validator("jwt_private_key", "jwt_public_key", mode="before")
+    @classmethod
+    def _decode_pem_b64(cls, v: object) -> object:
+        import base64 as _b64
+        if isinstance(v, str) and v and not v.lstrip().startswith("-----"):
+            try:
+                return _b64.b64decode(v).decode("utf-8")
+            except Exception:
+                return v
+        return v
+
+    jwt_private_key: str = Field(
+        default="", validation_alias="JWT_PRIVATE_KEY"
     )
-    jwt_algorithm: str = Field(default="HS256", validation_alias="JWT_ALGORITHM")
+    jwt_public_key: str = Field(
+        default="", validation_alias="JWT_PUBLIC_KEY"
+    )
+    jwt_algorithm: str = Field(default="RS256", validation_alias="JWT_ALGORITHM")
     jwt_expire_seconds: int = Field(default=86400, validation_alias="JWT_EXPIRE_SECONDS")
 
     # ==================== App ====================
