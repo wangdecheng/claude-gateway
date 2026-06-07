@@ -194,6 +194,18 @@ PROVIDER_FACTORIES = {
 ### 5. 前端 Admin 界面自动支持
 - Provider adapter 下拉框 (admin/providers) 已支持 `openai-chat-completions` 和 `anthropic-messages` 两种类型
 
+## MiniMax
+
+MiniMax 使用原生 Anthropic-compatible Messages 路径，后台供应商名称会被规范化为
+provider id `minimax`。因此供应商名称可以填 `minimax`、`miniMax` 或 `MiniMax`。
+
+后台 Provider 配置:
+
+- API Base URL: `https://api.minimaxi.com/anthropic`
+- Auth Header: `Authorization`
+- Adapter: `anthropic-messages`
+- Channel `providerModelId`: 例如 `MiniMax-M3`
+
 ## 上游密钥安全
 
 - 密钥通过 `provider_service.encrypt_api_key()` 加密存储
