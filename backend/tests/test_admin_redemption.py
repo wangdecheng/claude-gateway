@@ -12,8 +12,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base
-from app.models.user import User
 from app.exceptions import AppException
+from app.models.user import User
 from server import app
 
 
