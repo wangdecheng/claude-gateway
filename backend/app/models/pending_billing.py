@@ -4,7 +4,6 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import CHAR, TypeDecorator
 
@@ -12,27 +11,34 @@ from app.database import Base
 
 
 class GUID(TypeDecorator):
-    """Cross-dialect UUID (PostgreSQL native, SQLite CHAR(36))."""
+    """Cross-dialect UUID stored as CHAR(36) at the DB level.
+
+    Python type is ``uuid.UUID``; on the wire it is always a 36-char string.
+    This avoids the PostgreSQL native-UUID vs string-column type mismatch
+    that bites when asyncpg generates a ``$1::UUID`` cast against a CHAR(36)
+    column.
+    """
 
     impl = CHAR
     cache_ok = True
 
     def load_dialect_impl(self, dialect):
-        if dialect.name == "postgresql":
-            return dialect.type_descriptor(PG_UUID(as_uuid=True))
         return dialect.type_descriptor(CHAR(36))
 
     def process_bind_param(self, value, dialect):
         if value is None:
             return None
-        if dialect.name == "postgresql":
-            return value if isinstance(value, uuid.UUID) else uuid.UUID(str(value))
-        return str(value if isinstance(value, uuid.UUID) else uuid.UUID(str(value)))
+        if not isinstance(value, uuid.UUID):
+            value = uuid.UUID(str(value))
+        # Always send a 36-char string, regardless of dialect.
+        return str(value)
 
     def process_result_value(self, value, dialect):
         if value is None:
             return None
-        return value if isinstance(value, uuid.UUID) else uuid.UUID(str(value))
+        if isinstance(value, uuid.UUID):
+            return value
+        return uuid.UUID(str(value))
 
 
 class PendingBilling(Base):
