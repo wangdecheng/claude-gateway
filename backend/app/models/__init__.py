@@ -3,6 +3,7 @@ from app.models.billing_record import BillingRecord
 from app.models.channel_key import ChannelKey  # noqa: F401
 from app.models.model import ChannelConfig, Model
 from app.models.payment_record import PaymentRecord
+from app.models.pending_billing import PendingBilling  # noqa: F401
 from app.models.provider import Provider, ProviderKey
 from app.models.redemption_code import RedemptionCode, RedemptionUsage
 from app.models.request_log import RequestLog
@@ -23,4 +24,5 @@ __all__ = [
     "RequestLog",
     "BillingRecord",
     "ChannelKey",
+    "PendingBilling",
 ]
