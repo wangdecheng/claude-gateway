@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 from typing import Any
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.anthropic.native_sse_block_policy import format_native_sse_event
 from providers.minimax.client import (
