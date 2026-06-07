@@ -67,9 +67,10 @@ async def usage_history(
             {
                 "id": r.id,
                 "model": r.model,
-                "requestTokens": r.request_tokens,
-                "responseTokens": r.response_tokens,
-                "totalTokens": r.total_tokens,
+                "inputTokens": r.input_tokens,
+                "cacheReadTokens": r.cache_read_tokens,
+                "cacheCreationTokens": r.cache_creation_tokens,
+                "outputTokens": r.output_tokens,
                 "costCents": r.cost_cents,
                 "createdAt": r.created_at,
             }
