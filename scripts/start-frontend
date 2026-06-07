@@ -3,11 +3,24 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NODE_BIN="/Users/wangdecheng/.nvm/versions/node/v22.16.0/bin"
+FCC_ENV="${HOME}/.fcc/.env"
 
 pids="$(lsof -tiTCP:3000 -sTCP:LISTEN || true)"
 if [[ -n "$pids" ]]; then
   kill $pids
   sleep 1
+fi
+
+# Load the same env file the backend uses so the Next.js middleware can
+# verify JWTs (JWT_PUBLIC_KEY). Without this, `process.env.JWT_PUBLIC_KEY`
+# is undefined in dev and every login redirects back to /login.
+if [[ -f "$FCC_ENV" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$FCC_ENV"
+  set +a
+else
+  echo "warning: $FCC_ENV not found — JWT verification will fail" >&2
 fi
 
 cd "$ROOT_DIR/frontend"

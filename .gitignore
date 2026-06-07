@@ -41,3 +41,4 @@ build/
 
 # Misc
 *.tmp
+.gstack/

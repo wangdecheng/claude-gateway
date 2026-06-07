@@ -5,8 +5,10 @@ import { jwtVerify, importSPKI, type KeyLike } from "jose";
 // 公钥只用于验签,即使泄露也无法伪造 token。
 // 从 .env 以 base64 注入(避开 systemd EnvironmentFile 对 \ 的转义),此处 base64 decode 还原 PEM。
 // 后端: RS256 私钥签发 -> JWT -> 此处用公钥验签。
-const PUBLIC_KEY_PEM = process.env.JWT_PUBLIC_KEY_B64
-  ? Buffer.from(process.env.JWT_PUBLIC_KEY_B64, "base64").toString("utf-8")
+// Public key is stored base64-encoded in the shared env file (~/.fcc/.env).
+// Same env var the backend signs with (config/settings.py:JWT_PUBLIC_KEY).
+const PUBLIC_KEY_PEM = process.env.JWT_PUBLIC_KEY
+  ? Buffer.from(process.env.JWT_PUBLIC_KEY, "base64").toString("utf-8")
   : "";
 
 // Paths that do NOT require authentication
