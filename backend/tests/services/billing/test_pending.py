@@ -3,6 +3,7 @@
 import os
 import sys
 import uuid
+from datetime import datetime, timedelta, timezone
 
 _BACKEND = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -96,3 +97,73 @@ async def test_write_pending_billing_idempotent_on_request_id(db_session: AsyncS
             cache_read_tokens=0, cache_creation_tokens=0,
         )
         await db_session.commit()
+
+
+@pytest.mark.asyncio
+async def test_claim_pending_batch_returns_only_old_pending(db_session: AsyncSession):
+    """claim_pending_batch skips recent pending rows (in-flight window)."""
+    from app.services.billing.pending import claim_pending_batch, write_pending_billing
+
+    # Recent row (created_at = now) — should be SKIPPED
+    await write_pending_billing(
+        db_session,
+        request_id=uuid.uuid4(), user_id=1, api_key_id=1,
+        model_id=1, channel_id=1, provider_id=1,
+        input_tokens=10, output_tokens=10,
+        cache_read_tokens=0, cache_creation_tokens=0,
+    )
+    await db_session.commit()
+
+    claimed = await claim_pending_batch(db_session, max_age_seconds=5, limit=10)
+    assert claimed == []
+
+
+@pytest.mark.asyncio
+async def test_claim_pending_batch_returns_old_pending(db_session: AsyncSession):
+    """claim_pending_batch returns rows older than max_age."""
+    from app.services.billing.pending import claim_pending_batch, write_pending_billing
+
+    pb = await write_pending_billing(
+        db_session,
+        request_id=uuid.uuid4(), user_id=1, api_key_id=1,
+        model_id=1, channel_id=1, provider_id=1,
+        input_tokens=10, output_tokens=10,
+        cache_read_tokens=0, cache_creation_tokens=0,
+    )
+    # Backdate created_at to 10s ago
+    pb.created_at = datetime.now(timezone.utc) - timedelta(seconds=10)
+    await db_session.commit()
+
+    claimed = await claim_pending_batch(db_session, max_age_seconds=5, limit=10)
+    assert len(claimed) == 1
+    assert claimed[0].id == pb.id
+
+
+@pytest.mark.asyncio
+async def test_claim_pending_batch_skips_settled_and_dead(db_session: AsyncSession):
+    """Only status='pending' rows are claimed."""
+    from app.services.billing.pending import claim_pending_batch, write_pending_billing
+
+    # Insert one pending + one settled
+    pb_pending = await write_pending_billing(
+        db_session,
+        request_id=uuid.uuid4(), user_id=1, api_key_id=1,
+        model_id=1, channel_id=1, provider_id=1,
+        input_tokens=10, output_tokens=10,
+        cache_read_tokens=0, cache_creation_tokens=0,
+    )
+    pb_settled = await write_pending_billing(
+        db_session,
+        request_id=uuid.uuid4(), user_id=1, api_key_id=1,
+        model_id=1, channel_id=1, provider_id=1,
+        input_tokens=10, output_tokens=10,
+        cache_read_tokens=0, cache_creation_tokens=0,
+    )
+    pb_pending.created_at = datetime.now(timezone.utc) - timedelta(seconds=10)
+    pb_settled.created_at = datetime.now(timezone.utc) - timedelta(seconds=10)
+    pb_settled.status = "settled"
+    await db_session.commit()
+
+    claimed = await claim_pending_batch(db_session, max_age_seconds=5, limit=10)
+    assert len(claimed) == 1
+    assert claimed[0].id == pb_pending.id
