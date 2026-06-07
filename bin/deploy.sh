@@ -239,6 +239,41 @@ REMOTE
 fi
 
 if [ "$FRONTEND" = 1 ]; then
+  # Sync the backend's JWT public key into the frontend's EnvironmentFile.
+  # The frontend Next.js middleware (frontend/middleware.ts) needs JWT_PUBLIC_KEY
+  # at runtime to verify session cookies. The public key is non-sensitive
+  # (only used to verify signatures) and lives in backend/.env; the frontend
+  # .env.production is the systemd EnvironmentFile for cloude-frontend.
+  # Without this step, an old variable name (e.g. JWT_PUBLIC_KEY_B64) or a
+  # missing line makes the middleware fail open, redirecting every login
+  # back to /login. See git history: "fix: align frontend env var with backend".
+  say "[remote] frontend: sync JWT public key → .env.production"
+  "${SSH[@]}" bash -s -- "$REMOTE_DIR" <<'REMOTE'
+set -e
+REMOTE_DIR="$1"
+BACKEND_ENV="$REMOTE_DIR/backend/.env"
+FRONTEND_ENV="$REMOTE_DIR/frontend/.env.production"
+# Pick the canonical public key (same name backend config/settings.py reads).
+JWT_KEY=$(grep -E '^JWT_PUBLIC_KEY=' "$BACKEND_ENV" | head -1 || true)
+if [ -z "$JWT_KEY" ]; then
+  echo "  warning: $BACKEND_ENV has no JWT_PUBLIC_KEY; skipping sync" >&2
+else
+  [ -f "$FRONTEND_ENV" ] || { echo "  (creating empty $FRONTEND_ENV)"; touch "$FRONTEND_ENV"; }
+  if grep -qE '^JWT_PUBLIC_KEY=' "$FRONTEND_ENV"; then
+    sed -i "s|^JWT_PUBLIC_KEY=.*|$JWT_KEY|" "$FRONTEND_ENV"
+    echo "  updated JWT_PUBLIC_KEY in $FRONTEND_ENV"
+  elif grep -qE '^JWT_PUBLIC_KEY_B64=' "$FRONTEND_ENV"; then
+    # Migrate the legacy _B64 key: drop the old line, append the new one.
+    sed -i '/^JWT_PUBLIC_KEY_B64=/d' "$FRONTEND_ENV"
+    printf '%s\n' "$JWT_KEY" >> "$FRONTEND_ENV"
+    echo "  migrated JWT_PUBLIC_KEY_B64 -> JWT_PUBLIC_KEY in $FRONTEND_ENV"
+  else
+    printf '%s\n' "$JWT_KEY" >> "$FRONTEND_ENV"
+    echo "  appended JWT_PUBLIC_KEY to $FRONTEND_ENV"
+  fi
+fi
+REMOTE
+  echo
   say "[remote] frontend: npm ci + next build"
   "${SSH[@]}" bash -s -- "$REMOTE_DIR" "$SKIP_BUILD" <<'REMOTE'
 set -e
