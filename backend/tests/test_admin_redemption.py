@@ -13,7 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.database import Base
 from app.exceptions import AppException
+from app.models.redemption_code import RedemptionCode
 from app.models.user import User
+from app.services.redemption_service import hash_code
 from server import app
 
 
@@ -202,3 +204,145 @@ async def test_generated_redemption_code_can_be_redeemed():
     async with app.state.db_session_factory() as session:
         user = (await session.execute(select(User).where(User.id == 2))).scalar_one()
         assert user.balance == 600
+
+
+@pytest.mark.asyncio
+async def test_admin_can_list_redemption_codes_newest_first():
+    _override_admin_auth()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        first = await client.post("/api/admin/redemption", json={"amount": 100})
+        second = await client.post("/api/admin/redemption", json={"amount": 200})
+        third = await client.post("/api/admin/redemption", json={"amount": 300})
+        list_resp = await client.get("/api/admin/redemption")
+
+    assert all(r.status_code == 200 for r in (first, second, third))
+    assert list_resp.status_code == 200, list_resp.text
+    items = list_resp.json()
+    assert len(items) == 3
+    # newest first
+    assert items[0]["amount"] == 300
+    assert items[1]["amount"] == 200
+    assert items[2]["amount"] == 100
+    # newly created codes are issued and not yet used
+    assert items[0]["status"] == "issued"
+    assert items[0]["codePrefix"].startswith("REDM-")
+    assert items[0]["createdByEmail"] == "admin@example.com"
+    assert items[0]["usedByEmail"] is None
+    assert items[0]["usedAt"] is None
+
+
+@pytest.mark.asyncio
+async def test_admin_list_marks_status_used_after_redemption():
+    _override_admin_auth()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        create_resp = await client.post("/api/admin/redemption", json={"amount": 500})
+        assert create_resp.status_code == 200, create_resp.text
+        raw_code = create_resp.json()["code"]
+
+        app.dependency_overrides.clear()
+        _override_user_auth()
+        redeem_resp = await client.post("/api/redeem", json={"code": raw_code})
+        assert redeem_resp.status_code == 200, redeem_resp.text
+
+        app.dependency_overrides.clear()
+        _override_admin_auth()
+        list_resp = await client.get("/api/admin/redemption")
+
+    assert list_resp.status_code == 200
+    items = list_resp.json()
+    assert len(items) == 1
+    assert items[0]["status"] == "used"
+    assert items[0]["usedByEmail"] == "user@example.com"
+    assert items[0]["usedAt"] is not None
+
+
+@pytest.mark.asyncio
+async def test_admin_list_reports_expired_for_past_due_issued_codes():
+    """A row still stored as 'issued' but past expires_at should surface as 'expired'."""
+    # Insert directly via ORM so we control expires_at
+    async with app.state.db_session_factory() as session:
+        session.add(
+            RedemptionCode(
+                code_hash=hash_code("REDM-EXPI-RED1-TEST"),
+                code_prefix="REDM-EXPI",
+                amount=400,
+                status="issued",
+                expires_at=datetime.now(timezone.utc) - timedelta(days=1),
+                created_by=1,
+            )
+        )
+        await session.commit()
+
+    _override_admin_auth()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        list_resp = await client.get("/api/admin/redemption")
+
+    assert list_resp.status_code == 200
+    items = list_resp.json()
+    assert len(items) == 1
+    assert items[0]["status"] == "expired"
+
+    # DB row itself stays 'issued' (read-only endpoint)
+    async with app.state.db_session_factory() as session:
+        row = (await session.execute(select(RedemptionCode))).scalar_one()
+        assert row.status == "issued"
+
+
+@pytest.mark.asyncio
+async def test_admin_list_filters_by_effective_status():
+    _override_admin_auth()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        await client.post("/api/admin/redemption", json={"amount": 100})
+        await client.post("/api/admin/redemption", json={"amount": 200})
+
+    # Also insert one already-expired
+    async with app.state.db_session_factory() as session:
+        session.add(
+            RedemptionCode(
+                code_hash=hash_code("REDM-EXPI-RED2-TEST"),
+                code_prefix="REDM-EXP2",
+                amount=999,
+                status="issued",
+                expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
+                created_by=1,
+            )
+        )
+        await session.commit()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        issued_resp = await client.get("/api/admin/redemption", params={"status": "issued"})
+        expired_resp = await client.get("/api/admin/redemption", params={"status": "expired"})
+
+    assert issued_resp.status_code == 200
+    assert {item["amount"] for item in issued_resp.json()} == {100, 200}
+    assert expired_resp.status_code == 200
+    expired_items = expired_resp.json()
+    assert len(expired_items) == 1
+    assert expired_items[0]["amount"] == 999
+
+
+@pytest.mark.asyncio
+async def test_admin_list_rejects_invalid_status_filter():
+    _override_admin_auth()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/admin/redemption", params={"status": "bogus"})
+
+    assert resp.status_code == 400
+    assert resp.json()["code"] == "INVALID_STATUS_FILTER"
+
+
+@pytest.mark.asyncio
+async def test_regular_user_cannot_list_redemption_codes():
+    _override_forbidden_admin_auth()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/admin/redemption")
+
+    assert resp.status_code == 403
+    assert resp.json()["code"] == "FORBIDDEN"

@@ -48,3 +48,24 @@ class AdminRedemptionCreateResponse(BaseModel):
     created_at: str = Field(..., alias="createdAt")
 
     model_config = {"populate_by_name": True}
+
+
+class AdminRedemptionListItem(BaseModel):
+    """Single row of the admin redemption-history list.
+
+    `status` is the *effective* status: if the DB row is still `issued`
+    but `expires_at` has passed, this field reports `expired` (the DB
+    row itself is left untouched — the list endpoint is read-only).
+    """
+
+    id: int
+    code_prefix: str = Field(..., alias="codePrefix")
+    amount: int
+    status: str  # issued | used | expired
+    expires_at: str = Field(..., alias="expiresAt")
+    created_at: str = Field(..., alias="createdAt")
+    created_by_email: str | None = Field(None, alias="createdByEmail")
+    used_by_email: str | None = Field(None, alias="usedByEmail")
+    used_at: str | None = Field(None, alias="usedAt")
+
+    model_config = {"populate_by_name": True}
