@@ -1,4 +1,4 @@
-"""Provider catalog — Phase 1: DeepSeek only."""
+"""Provider catalog."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ TransportType = Literal["openai_chat", "anthropic_messages"]
 
 DEEPSEEK_ANTHROPIC_DEFAULT_BASE = "https://api.deepseek.com/anthropic"
 DEEPSEEK_DEFAULT_BASE = DEEPSEEK_ANTHROPIC_DEFAULT_BASE
+MINIMAX_DEFAULT_BASE = "https://api.minimaxi.com/anthropic"
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +34,17 @@ PROVIDER_CATALOG: dict[str, ProviderDescriptor] = {
         credential_url="https://platform.deepseek.com/api_keys",
         credential_attr="deepseek_api_key",
         default_base_url=DEEPSEEK_ANTHROPIC_DEFAULT_BASE,
+        capabilities=("chat", "streaming", "tools", "thinking", "native_anthropic"),
+    ),
+    "minimax": ProviderDescriptor(
+        provider_id="minimax",
+        transport_type="anthropic_messages",
+        credential_env="MINIMAX_API_KEY",
+        credential_url=(
+            "https://platform.minimaxi.com/user-center/basic-information/interface-key"
+        ),
+        credential_attr="minimax_api_key",
+        default_base_url=MINIMAX_DEFAULT_BASE,
         capabilities=("chat", "streaming", "tools", "thinking", "native_anthropic"),
     ),
 }
