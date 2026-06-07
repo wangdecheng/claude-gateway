@@ -7,6 +7,11 @@ import KeysPage from "@/app/(user)/keys/page";
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
+const mockCopyToClipboard = vi.fn<(text: string) => Promise<boolean>>();
+vi.mock("@/lib/utils/clipboard", () => ({
+  copyToClipboard: (text: string) => mockCopyToClipboard(text),
+}));
+
 function renderWithProviders() {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -24,6 +29,8 @@ function renderWithProviders() {
 describe("KeysPage - baseUrl display", () => {
   beforeEach(() => {
     mockFetch.mockReset();
+    mockCopyToClipboard.mockReset();
+    mockCopyToClipboard.mockResolvedValue(true);
     mockFetch.mockImplementation((url: string) => {
       if (url.includes("/public-url")) {
         return Promise.resolve({
@@ -47,18 +54,33 @@ describe("KeysPage - baseUrl display", () => {
     });
   });
 
-  it("changes button text to 已复制 after clicking copy", async () => {
+  it("shows success toast and flips button text on successful copy", async () => {
     const user = userEvent.setup();
+    renderWithProviders();
+
+    await screen.findByText("https://gateway.example.com");
+    await user.click(screen.getByRole("button", { name: "复制" }));
+
+    expect(await screen.findByText("base_url 已复制到剪贴板")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "已复制" })).toBeInTheDocument();
+    });
+    expect(mockCopyToClipboard).toHaveBeenCalledWith("https://gateway.example.com");
+  });
+
+  it("shows error toast when copy fails", async () => {
+    const user = userEvent.setup();
+    mockCopyToClipboard.mockResolvedValue(false);
 
     renderWithProviders();
 
     await screen.findByText("https://gateway.example.com");
-
     await user.click(screen.getByRole("button", { name: "复制" }));
 
-    // After successful copy, button text should change
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "已复制" })).toBeInTheDocument();
-    });
+    expect(
+      await screen.findByText("复制失败，请手动选择上方 base_url 复制")
+    ).toBeInTheDocument();
+    // Button stays as "复制", does NOT flip to "已复制".
+    expect(screen.getByRole("button", { name: "复制" })).toBeInTheDocument();
   });
 });
