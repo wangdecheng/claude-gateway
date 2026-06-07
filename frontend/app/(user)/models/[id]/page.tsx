@@ -85,8 +85,8 @@ export default function ModelDetailPage() {
                 <tr className="border-b border-neutral-border text-left text-neutral-text-secondary">
                   <th className="py-2 font-medium">渠道</th>
                   <th className="py-2 font-medium text-right">倍率</th>
-                  <th className="py-2 font-medium text-right">输入价格 / 1K</th>
-                  <th className="py-2 font-medium text-right">输出价格 / 1K</th>
+                  <th className="py-2 font-medium text-right">输入价格 / 1M</th>
+                  <th className="py-2 font-medium text-right">输出价格 / 1M</th>
                 </tr>
               </thead>
               <tbody>
@@ -127,7 +127,7 @@ export default function ModelDetailPage() {
           {/* Market price note */}
           <p className="mt-4 text-xs text-neutral-text-muted">
             市场价：输入 {formatUnitPrice(model.inputPrice)} / 输出{" "}
-            {formatUnitPrice(model.outputPrice)} / 1K tokens。实际费用 = 市场价 × 渠道倍率。
+            {formatUnitPrice(model.outputPrice)} / 1M tokens。实际费用 = 市场价 × 渠道倍率。
           </p>
         </CardContent>
       </Card>

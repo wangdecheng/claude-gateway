@@ -12,22 +12,22 @@ const PAYMENT_METHODS = [
 ];
 
 const QUICK_AMOUNTS = [
-  { label: "¥10", value: 1000 },
-  { label: "¥50", value: 5000 },
-  { label: "¥100", value: 10000 },
+  { label: "$10", value: 1000 },
+  { label: "$50", value: 5000 },
+  { label: "$100", value: 10000 },
 ];
 
-const MIN_AMOUNT = 100;   // ¥1.00
-const MAX_AMOUNT = 500000; // ¥5,000.00
+const MIN_AMOUNT = 100;   // $1.00
+const MAX_AMOUNT = 500000; // $5,000.00
 
 interface RechargeFormProps {
   onSuccess?: (amount: number) => void;
 }
 
-/** Safely convert a yuan string to cents (integer), avoiding IEEE 754 drift. */
-function yuanToCents(yuan: string): number {
+/** Safely convert a dollar string to cents (integer), avoiding IEEE 754 drift. */
+function dollarToCents(dollars: string): number {
   // Multiply by 100 as string arithmetic to avoid floating-point drift
-  const trimmed = yuan.trim();
+  const trimmed = dollars.trim();
   const dot = trimmed.indexOf(".");
   if (dot === -1) return parseInt(trimmed, 10) * 100;
   const intPart = trimmed.substring(0, dot);
@@ -57,15 +57,15 @@ export function RechargeForm({ onSuccess }: RechargeFormProps) {
   const createOrder = useCreateOrder();
 
   const useCustom = customAmount.trim() !== "";
-  const amount = useCustom ? yuanToCents(customAmount) : (selectedQuick ?? 0);
+  const amount = useCustom ? dollarToCents(customAmount) : (selectedQuick ?? 0);
 
   // Validation
   const amountError = (() => {
     if (!useCustom) return "";
     const n = parseFloat(customAmount);
     if (isNaN(n) || n <= 0) return "请输入有效金额";
-    if (n < 1) return `充值金额不能低于 ¥1.00`;
-    if (n > 5000) return `充值金额不能超过 ¥5,000.00`;
+    if (n < 1) return `充值金额不能低于 $1.00`;
+    if (n > 5000) return `充值金额不能超过 $5,000.00`;
     return "";
   })();
 
@@ -171,7 +171,7 @@ export function RechargeForm({ onSuccess }: RechargeFormProps) {
           </label>
           <div className="relative">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-text-secondary font-mono">
-              ¥
+              $
             </span>
             <input
               id="custom-amount"

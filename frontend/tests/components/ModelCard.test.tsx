@@ -92,8 +92,8 @@ describe("ModelCard", () => {
   it("displays estimated price for default channel", () => {
     render(<ModelCard model={MOCK_MODEL} />, { wrapper: createWrapper() });
 
-    // Default: output 15000 micro-yuan → ¥0.015
-    expect(screen.getByText("输出 ¥0.015")).toBeInTheDocument();
+    // Default: output 15000 micro-yuan/1K → $15.00 / 1M (1:1 relabel, ×1000)
+    expect(screen.getByText("输出 $15.00")).toBeInTheDocument();
   });
 
   it("updates price display when channel changes", async () => {
@@ -103,7 +103,7 @@ describe("ModelCard", () => {
     const select = screen.getByRole("combobox");
     await user.selectOptions(select, "2");
 
-    // After switching to RightCodes (1.2x): output 15000 * 1.2 = 18000 micro-yuan → ¥0.018
-    expect(screen.getByText("输出 ¥0.018")).toBeInTheDocument();
+    // After switching to RightCodes (1.2x): 15000 * 1.2 = 18000 micro-yuan/1K → $18.00 / 1M
+    expect(screen.getByText("输出 $18.00")).toBeInTheDocument();
   });
 });

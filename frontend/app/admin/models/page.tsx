@@ -43,9 +43,10 @@ import { ApiClientError } from "@/lib/api/client";
 
 const columnHelper = createColumnHelper<AdminModelItem>();
 
-function formatPrice(microYuan: number): string {
-  const yuan = microYuan / 10_000;
-  return `¥${yuan.toFixed(4)}`;
+function formatPricePer1M(microYuan: number): string {
+  // microYuan is per 1K tokens. Multiply by 1000 to get per-1M, then 1:1 relabel as $.
+  const dollarsPer1M = microYuan / 1000;
+  return `$${dollarsPer1M.toFixed(2)}`;
 }
 
 const COLUMNS = [
@@ -54,15 +55,15 @@ const COLUMNS = [
     cell: (info) => <span className="font-medium">{info.getValue()}</span>,
   }),
   columnHelper.accessor("inputPrice", {
-    header: "Input 单价",
+    header: "Input 单价 / 1M",
     cell: (info) => (
-      <span className="text-sm tabular-nums">{formatPrice(info.getValue())}</span>
+      <span className="text-sm tabular-nums">{formatPricePer1M(info.getValue())}</span>
     ),
   }),
   columnHelper.accessor("outputPrice", {
-    header: "Output 单价",
+    header: "Output 单价 / 1M",
     cell: (info) => (
-      <span className="text-sm tabular-nums">{formatPrice(info.getValue())}</span>
+      <span className="text-sm tabular-nums">{formatPricePer1M(info.getValue())}</span>
     ),
   }),
   columnHelper.accessor("status", {

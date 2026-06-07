@@ -100,7 +100,7 @@ export function ModelCard({ model }: ModelCardProps) {
         {selectedChannel && (
           <div className="rounded-sm bg-neutral-bg px-3 py-2">
             <p className="text-xs text-neutral-text-muted">
-              预估价格 / 1K tokens
+              预估价格 / 1M tokens
             </p>
             <div className="mt-1 flex items-baseline gap-3">
               <span className="font-mono text-sm text-neutral-text-primary">

@@ -7,7 +7,7 @@ interface BalanceDisplayProps {
 }
 
 export function BalanceDisplay({ balance, className }: BalanceDisplayProps) {
-  const isLow = balance > 0 && balance < 500; // < ¥5
+  const isLow = balance > 0 && balance < 500; // < $5
   const isZero = balance <= 0;
 
   return (

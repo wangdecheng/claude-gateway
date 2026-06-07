@@ -1,10 +1,11 @@
 /**
- * Format price from cents (INTEGER) to display string (¥X.XX).
+ * Format price from cents (INTEGER) to display string ($X.XX).
+ * 1:1 relabel — internal storage is still in cents, but the UI shows $.
  * Architecture constraint #8: balance amounts are stored in cents (INTEGER).
  */
 export function formatPrice(cents: number): string {
-  const yuan = cents / 100;
-  return `¥${yuan.toFixed(2)}`;
+  const dollars = cents / 100;
+  return `$${dollars.toFixed(2)}`;
 }
 
 /**
@@ -28,21 +29,18 @@ export function formatTokens(tokens: number): string {
 }
 
 /**
- * Format token unit price from micro-yuan per 1K tokens.
- * E.g., 15000 → "¥0.015", 150 → "¥0.00015".
+ * Format token unit price from micro-yuan per 1K tokens, displayed as $X.XX per 1M.
+ * 1:1 relabel — micro-yuan is treated as cents-of-a-dollar; multiplying by 1000
+ * converts from per-1K to per-1M.
+ *
+ * E.g., 15000 → "$15.00", 75000 → "$75.00".
  */
 export function formatUnitPrice(microYuan: number): string {
-  const yuan = microYuan / 1_000_000;
-  if (yuan === 0) {
-    return "¥0";
+  if (microYuan === 0) {
+    return "$0.00";
   }
-  if (yuan < 0.001) {
-    return `¥${yuan.toFixed(5).replace(/0+$/, "")}`;
-  }
-  if (yuan < 1) {
-    return `¥${yuan.toFixed(4).replace(/0+$/, "")}`;
-  }
-  return `¥${yuan.toFixed(2)}`;
+  const dollarsPer1M = microYuan / 1000;
+  return `$${dollarsPer1M.toFixed(2)}`;
 }
 
 /**

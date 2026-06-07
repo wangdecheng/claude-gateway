@@ -110,7 +110,7 @@ export function ModelEditForm({
               Input 单价 <span className="text-red-500">*</span>
             </Label>
             <p className="text-xs text-muted-foreground">
-              单位: micro-yuan/1K tokens（如 150 = ¥0.015/1K tokens）
+              存储单位: micro-yuan/1K tokens（展示时换算为 $/1M，例如 1500 = $1.50/1M）
             </p>
             <Input
               id="inputPrice"
@@ -134,7 +134,7 @@ export function ModelEditForm({
               Output 单价 <span className="text-red-500">*</span>
             </Label>
             <p className="text-xs text-muted-foreground">
-              单位: micro-yuan/1K tokens（如 600 = ¥0.06/1K tokens）
+              存储单位: micro-yuan/1K tokens（展示时换算为 $/1M，例如 1500 = $1.50/1M）
             </p>
             <Input
               id="outputPrice"
