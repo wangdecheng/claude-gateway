@@ -62,7 +62,7 @@ def _synthetic_cache_creation_tokens(
 
     if input_tokens <= 0:
         creation = 0
-    elif cache_read_tokens <= 0:
+    elif cache_read_tokens <= input_tokens:
         creation = input_tokens
     else:
         low = int(input_tokens * 0.5)
