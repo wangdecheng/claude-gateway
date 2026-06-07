@@ -27,6 +27,8 @@ export interface UsageRecord {
   cacheCreationTokens: number;
   outputTokens: number;
   costCents: number;
+  channelId: number | null;
+  channelName: string | null;
   createdAt: string;
 }
 

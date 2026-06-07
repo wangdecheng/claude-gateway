@@ -156,6 +156,7 @@ export default function UsagePage() {
                     <tr className="border-b border-neutral-border text-left text-neutral-text-secondary">
                       <th className="py-2 font-medium">时间</th>
                       <th className="py-2 font-medium">模型</th>
+                      <th className="py-2 font-medium">渠道</th>
                       <th className="py-2 font-medium text-right">输入</th>
                       <th className="py-2 font-medium text-right">缓存读</th>
                       <th className="py-2 font-medium text-right">缓存创建</th>
@@ -173,6 +174,15 @@ export default function UsagePage() {
                           {formatDate(r.createdAt)}
                         </td>
                         <td className="py-2 font-mono text-xs">{r.model}</td>
+                        <td className="py-2 text-xs text-neutral-text-secondary">
+                          {r.channelName || r.channelId ? (
+                            <span className="font-mono">
+                              {r.channelName || `渠道 ${r.channelId}`}
+                            </span>
+                          ) : (
+                            <span className="text-neutral-text-muted">—</span>
+                          )}
+                        </td>
                         <td className="py-2 text-right font-mono">
                           {formatTokens(r.inputTokens)}
                         </td>

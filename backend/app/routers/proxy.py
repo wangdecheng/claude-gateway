@@ -1,8 +1,8 @@
 """POST /v1/messages — Anthropic-compatible chat proxy with streaming billing."""
 
-import asyncio
 import json
 import logging
+import uuid
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
@@ -15,7 +15,6 @@ from api.models.anthropic import MessagesRequest
 from app.exceptions import AppException
 from app.models.model import Model
 from app.models.provider import Provider, ProviderKey
-from app.models.user import User
 from config.settings import get_settings
 from core.anthropic.sse import ANTHROPIC_SSE_RESPONSE_HEADERS
 from core.trace import trace_event
@@ -25,10 +24,8 @@ logger = logging.getLogger("cloude-gateway.proxy")
 
 router = APIRouter(tags=["proxy"])
 
-# Maximum cost cap: 200 RMB (20000 cents) per request
-MAX_COST_CENTS = 20_000
-# Minimum balance threshold for pre-flight check
-MIN_BALANCE_THRESHOLD_CENTS = 100  # ¥1.00
+# Minimum balance threshold for pre-flight check (¥0.10)
+MIN_BALANCE_THRESHOLD_CENTS = 10
 
 
 def _extract_usage_from_sse_line(line: str) -> dict[str, int] | None:
@@ -66,81 +63,6 @@ def _extract_usage_from_sse_line(line: str) -> dict[str, int] | None:
             result["cache_creation_tokens"] = usage.get("cache_creation_input_tokens", 0)
 
     return result
-
-
-async def _settle_billing(
-    *,
-    session_factory,
-    user_id: int,
-    api_key_id: int,
-    model_name: str,
-    reserve_amount: int,
-    input_tokens: int,
-    output_tokens: int,
-    cache_read_tokens: int,
-    cache_creation_tokens: int,
-    input_price_micro_yuan: int,
-    output_price_micro_yuan: int,
-    cache_read_price_micro_yuan: int,
-) -> None:
-    """Settle usage in a fresh transaction after the streaming response ends."""
-    from app.services.billing_service import compute_cost
-    from app.services.usage_service import record_usage
-
-    actual_cost = compute_cost(
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        input_price_micro_yuan=input_price_micro_yuan,
-        output_price_micro_yuan=output_price_micro_yuan,
-        cache_read_tokens=cache_read_tokens,
-        cache_read_price_micro_yuan=cache_read_price_micro_yuan,
-        channel_multiplier=1.0,
-    )
-    actual_cost = min(actual_cost, MAX_COST_CENTS)
-
-    async with session_factory() as settlement_db:
-        try:
-            user_result = await settlement_db.execute(
-                select(User).where(User.id == user_id).with_for_update()
-            )
-            locked_user = user_result.scalar_one()
-            locked_user.balance = locked_user.balance + reserve_amount - actual_cost
-
-            await record_usage(
-                db=settlement_db,
-                user_id=user_id,
-                api_key_id=api_key_id,
-                model=model_name,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                cache_read_tokens=cache_read_tokens,
-                cache_creation_tokens=cache_creation_tokens,
-                cost_cents=actual_cost,
-            )
-
-            await settlement_db.commit()
-            logger.info(
-                "Billing settled: user=%d model=%s input=%d output=%d cost=%d cents balance=%d",
-                user_id,
-                model_name,
-                input_tokens,
-                output_tokens,
-                actual_cost,
-                locked_user.balance,
-            )
-        except Exception:
-            await settlement_db.rollback()
-            logger.exception("Billing settlement failed: user=%d model=%s", user_id, model_name)
-            raise
-
-
-def _log_background_settlement_failure(task: asyncio.Task[None]) -> None:
-    try:
-        task.result()
-    except asyncio.CancelledError:
-        logger.error("Billing settlement background task was cancelled")
-    except Exception:
-        logger.exception("Billing settlement background task failed")
 
 
 async def _lookup_model(db: AsyncSession, model_name: str) -> Model | None:
@@ -232,27 +154,7 @@ async def create_message(
             code="INSUFFICIENT_BALANCE",
         )
 
-    # ── 6. Estimate max cost, pre-reserve ─────────────────────
-    estimated_cost = int((body.max_tokens or 4096) * model.output_price / 1000 / 10000)
-    estimated_cost = min(estimated_cost, MAX_COST_CENTS)
-
-    # Lock user row
-    lock_result = await db.execute(select(User.balance).where(User.id == user.id).with_for_update())
-    locked_balance = lock_result.scalar_one()
-    reserve_amount = min(estimated_cost, locked_balance)
-    user.balance = locked_balance - reserve_amount
-    await db.flush()
-    await db.commit()
-    trace_event(
-        stage="billing",
-        event="proxy.billing.reservation_committed",
-        source="api",
-        user_id=user.id,
-        model=body.model,
-        reserve_amount=reserve_amount,
-    )
-
-    # ── 7. Get or create provider instance ────────────────────
+    # ── 6. Get or create provider instance ────────────────────
     trace_event(
         stage="routing",
         event="proxy.provider.resolve_start",
@@ -267,22 +169,18 @@ async def create_message(
     )
     provider_body = body.model_copy(update={"model": routed.provider_model}, deep=True)
 
-    # ── 8. Store provider on request.state for api/routes.py resolution ──
+    # ── 7. Store provider on request.state for api/routes.py resolution ──
     request.state.active_provider = provider_instance
 
-    # ── 9. Stream response, accumulate usage ──────────────────
+    # ── 8. Stream response, accumulate usage ──────────────────
     accumulated_usage = {
         "input_tokens": 0,
         "output_tokens": 0,
         "cache_read_tokens": 0,
         "cache_creation_tokens": 0,
     }
-    session_factory = request.app.state.db_session_factory
     user_id = user.id
     api_key_id = api_key.id
-    input_price = model.input_price
-    output_price = model.output_price
-    cache_read_price = model.cache_read_price
 
     _provider_model = routed.provider_model
     _original_model = body.model
@@ -320,33 +218,37 @@ async def create_message(
                 else:
                     yield chunk
         finally:
-            # Extract usage from accumulated SSE events
-            input_tokens = accumulated_usage["input_tokens"] or 100
+            input_tokens = accumulated_usage["input_tokens"] or 0
             output_tokens = accumulated_usage["output_tokens"] or 0
             cache_read_tokens = accumulated_usage["cache_read_tokens"] or 0
             cache_creation_tokens = accumulated_usage["cache_creation_tokens"] or 0
-
-            settlement_task = asyncio.create_task(
-                _settle_billing(
-                    session_factory=session_factory,
+            try:
+                from app.services.billing.pending import write_pending_billing
+                await write_pending_billing(
+                    db,
+                    request_id=uuid.uuid4(),
                     user_id=user_id,
                     api_key_id=api_key_id,
-                    model_name=body.model,
-                    reserve_amount=reserve_amount,
+                    model_id=model.id,
+                    channel_id=routed.db_channel_id,
+                    provider_id=provider.id,
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
                     cache_read_tokens=cache_read_tokens,
                     cache_creation_tokens=cache_creation_tokens,
-                    input_price_micro_yuan=input_price,
-                    output_price_micro_yuan=output_price,
-                    cache_read_price_micro_yuan=cache_read_price,
                 )
-            )
-            try:
-                await asyncio.shield(settlement_task)
-            except asyncio.CancelledError:
-                settlement_task.add_done_callback(_log_background_settlement_failure)
-                raise
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                logger.exception(
+                    "Failed to write pending_billing for user=%d model=%s",
+                    user_id, body.model,
+                )
+
+    # Release the request-scoped transaction before the long-lived stream starts;
+    # the finally block in billing_stream will start a fresh transaction for the
+    # pending_billing write.
+    await db.commit()
 
     return StreamingResponse(
         billing_stream(),

@@ -20,6 +20,9 @@ class UsageRecord(Base):
     cache_creation_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     output_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     cost_cents: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # 单位: 分
+    channel_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("channel_configs.id"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )

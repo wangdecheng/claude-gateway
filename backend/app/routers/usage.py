@@ -56,7 +56,7 @@ async def usage_history(
     db: AsyncSession = Depends(get_db),
 ):
     """Get paginated usage history for the current user."""
-    records, total = await get_user_usage_history(
+    records, total, channel_map = await get_user_usage_history(
         db,
         user=user,
         page=page,
@@ -72,6 +72,8 @@ async def usage_history(
                 "cacheCreationTokens": r.cache_creation_tokens,
                 "outputTokens": r.output_tokens,
                 "costCents": r.cost_cents,
+                "channelId": r.channel_id,
+                "channelName": channel_map.get(r.channel_id) if r.channel_id else None,
                 "createdAt": r.created_at,
             }
             for r in records
