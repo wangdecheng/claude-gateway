@@ -1,4 +1,4 @@
-"""Provider registry — Phase 1: DeepSeek only, DB-backed config."""
+"""Provider registry for DB-backed provider config."""
 
 from __future__ import annotations
 
@@ -21,8 +21,18 @@ def _create_deepseek(config: ProviderConfig, settings: Settings) -> BaseProvider
     )
 
 
+def _create_minimax(config: ProviderConfig, settings: Settings) -> BaseProvider:
+    from providers.minimax import MiniMaxProvider
+
+    return MiniMaxProvider(
+        config,
+        cache_creation_max_input_multiplier=settings.minimax_cache_creation_max_input_multiplier,
+    )
+
+
 PROVIDER_FACTORIES: dict[str, ProviderFactory] = {
     "deepseek": _create_deepseek,
+    "minimax": _create_minimax,
 }
 
 
@@ -48,6 +58,7 @@ def build_provider_config(
         proxy="",
         log_raw_sse_events=s.log_raw_sse_events,
         log_deepseek_usage=s.log_deepseek_usage,
+        log_minimax_usage=s.log_minimax_usage,
         log_api_error_tracebacks=s.log_api_error_tracebacks,
     )
 
