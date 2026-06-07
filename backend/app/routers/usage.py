@@ -74,6 +74,7 @@ async def usage_history(
                 "costCents": r.cost_cents,
                 "channelId": r.channel_id,
                 "channelName": channel_map.get(r.channel_id) if r.channel_id else None,
+                "upstreamMessageId": r.upstream_message_id,
                 "createdAt": r.created_at,
             }
             for r in records

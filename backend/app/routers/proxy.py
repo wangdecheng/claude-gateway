@@ -29,7 +29,15 @@ MIN_BALANCE_THRESHOLD_CENTS = 10
 
 
 def _extract_usage_from_sse_line(line: str) -> dict[str, int] | None:
-    """Parse usage from message_start / message_delta data lines in the SSE stream."""
+    """Parse usage from message_start / message_delta data lines in the SSE stream.
+
+    message_start carries input/cache_read/cache_creation (per-request totals).
+    message_delta carries cumulative output_tokens; some reverse-engineered
+    Anthropic upstreams (e.g. api.minimaxi.com/anthropic) also re-emit
+    input_tokens in deltas — those are the authoritative non-zero values when
+    message_start reported 0. The caller (billing_stream) uses last-wins
+    assignment with a truthy guard, so both events cooperate cleanly.
+    """
     if not line.startswith("data:"):
         return None
     try:
@@ -58,11 +66,40 @@ def _extract_usage_from_sse_line(line: str) -> dict[str, int] | None:
         usage = payload.get("usage", {})
         if isinstance(usage, dict):
             result["output_tokens"] = usage.get("output_tokens", 0)
+            # Some reverse-engineered Anthropic upstreams (e.g. api.minimaxi.com)
+            # also re-emit input_tokens in delta events; capture it so the
+            # non-zero value isn't lost when message_start reports 0.
+            result["input_tokens"] = usage.get("input_tokens", 0)
             # DeepSeek provider normalizer may inject cache fields into delta events
             result["cache_read_tokens"] = usage.get("cache_read_input_tokens", 0)
             result["cache_creation_tokens"] = usage.get("cache_creation_input_tokens", 0)
 
     return result
+
+
+def _extract_message_id_from_sse_line(line: str) -> str | None:
+    """Extract the upstream ``message.id`` from a message_start data line.
+
+    Anthropic's message_start event carries the unique message identifier
+    (e.g. ``msg_01ABCxyz...``) under ``message.id``. Only message_start
+    carries it — message_delta, content_block_*, and message_stop do not.
+
+    Returns ``None`` for non-data lines, malformed JSON, non-message_start
+    events, and payloads missing the ``message.id`` field.
+    """
+    if not line.startswith("data:"):
+        return None
+    try:
+        payload = json.loads(line.removeprefix("data:").strip())
+    except json.JSONDecodeError:
+        return None
+    if payload.get("type") != "message_start":
+        return None
+    msg = payload.get("message")
+    if not isinstance(msg, dict):
+        return None
+    msg_id = msg.get("id")
+    return msg_id if isinstance(msg_id, str) and msg_id else None
 
 
 async def _lookup_model(db: AsyncSession, model_name: str) -> Model | None:
@@ -188,6 +225,12 @@ async def create_message(
 
     async def billing_stream():
         nonlocal accumulated_usage
+        # Captured from message_start — the upstream Anthropic message.id
+        # (e.g. "msg_01ABCxyz..."). Persisted so the call record can be
+        # cross-referenced with Claude Code JSONL session files and the
+        # upstream provider's logs. message_start fires exactly once per
+        # response, so last-wins assignment is correct.
+        upstream_message_id: str | None = None
         try:
             trace_event(
                 stage="egress",
@@ -213,6 +256,10 @@ async def create_message(
                         val = usage.get(key, 0)
                         if val:
                             accumulated_usage[key] = val
+                # Capture the upstream message.id from the message_start event.
+                mid = _extract_message_id_from_sse_line(chunk)
+                if mid:
+                    upstream_message_id = mid
                 if _remap_model:
                     yield chunk.replace(_provider_model, _original_model)
                 else:
@@ -236,6 +283,7 @@ async def create_message(
                     output_tokens=output_tokens,
                     cache_read_tokens=cache_read_tokens,
                     cache_creation_tokens=cache_creation_tokens,
+                    upstream_message_id=upstream_message_id,
                 )
                 await db.commit()
             except Exception:

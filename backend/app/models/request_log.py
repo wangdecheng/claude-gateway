@@ -56,6 +56,14 @@ class RequestLog(Base):
         Integer, nullable=False, default=0, comment="Completion tokens from upstream usage"
     )
 
+    # Upstream Anthropic message.id (e.g. "msg_01ABCxyz..."). 1:1 with one
+    # upstream response, so one row in this table has at most one message_id.
+    # Lets us cross-reference call records with Claude Code JSONL session
+    # files and the upstream provider's request logs.
+    upstream_message_id: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True
+    )
+
     # Cost — computed as (input × input_price + output × output_price × channel.multiplier)
     # Stored in cents (分). Always ≥ 0.
     cost_cents: Mapped[int] = mapped_column(

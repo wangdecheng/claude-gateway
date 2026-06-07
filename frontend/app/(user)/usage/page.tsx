@@ -157,11 +157,12 @@ export default function UsagePage() {
                       <th className="py-2 font-medium">时间</th>
                       <th className="py-2 font-medium">模型</th>
                       <th className="py-2 font-medium">渠道</th>
-                      <th className="py-2 font-medium text-right">输入</th>
+                      <th className="py-2 font-medium text-right" title="本次请求中未命中缓存的新输入 token(全部输入命中缓存时为 0)">新输入</th>
                       <th className="py-2 font-medium text-right">缓存读</th>
                       <th className="py-2 font-medium text-right">缓存创建</th>
                       <th className="py-2 font-medium text-right">输出</th>
                       <th className="py-2 font-medium text-right">费用</th>
+                      <th className="py-2 font-medium" title="上游 Anthropic message.id(message_start 事件),可用于和 Claude Code JSONL 关联">上游消息 ID</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -197,6 +198,17 @@ export default function UsagePage() {
                         </td>
                         <td className="py-2 text-right font-mono">
                           {formatPrice(r.costCents)}
+                        </td>
+                        <td className="py-2 font-mono text-xs text-neutral-text-secondary">
+                          {r.upstreamMessageId ? (
+                            <span title={r.upstreamMessageId}>
+                              {r.upstreamMessageId.length > 16
+                                ? `${r.upstreamMessageId.slice(0, 8)}…${r.upstreamMessageId.slice(-6)}`
+                                : r.upstreamMessageId}
+                            </span>
+                          ) : (
+                            <span className="text-neutral-text-muted">—</span>
+                          )}
                         </td>
                       </tr>
                     ))}

@@ -29,6 +29,7 @@ export interface UsageRecord {
   costCents: number;
   channelId: number | null;
   channelName: string | null;
+  upstreamMessageId: string | null;
   createdAt: string;
 }
 

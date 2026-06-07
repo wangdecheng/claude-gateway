@@ -23,6 +23,12 @@ class UsageRecord(Base):
     channel_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("channel_configs.id"), nullable=True, index=True
     )
+    # Upstream Anthropic message.id from message_start event (e.g. "msg_01ABCxyz...").
+    # Lets call records in this table be cross-referenced with Claude Code
+    # JSONL session files and the upstream provider's logs.
+    upstream_message_id: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )

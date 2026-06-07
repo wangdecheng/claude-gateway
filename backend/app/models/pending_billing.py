@@ -67,6 +67,12 @@ class PendingBilling(Base):
     output_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     cache_read_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     cache_creation_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Upstream Anthropic message.id from message_start event (e.g. "msg_01ABCxyz...").
+    # Lets us cross-reference call records with Claude Code JSONL session files
+    # and with the upstream provider's logs.
+    upstream_message_id: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True
+    )
     status: Mapped[str] = mapped_column(
         String(20), default="pending", nullable=False
     )  # pending | settled | dead

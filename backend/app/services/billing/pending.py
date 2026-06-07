@@ -22,10 +22,14 @@ async def write_pending_billing(
     output_tokens: int,
     cache_read_tokens: int,
     cache_creation_tokens: int,
+    upstream_message_id: str | None = None,
 ) -> PendingBilling:
     """Insert a pending_billing row. Caller owns the transaction.
 
     The ``request_id`` is UNIQUE — duplicate writes raise IntegrityError.
+    ``upstream_message_id`` is the Anthropic ``message.id`` from the
+    ``message_start`` SSE event, used to cross-reference call records
+    with the upstream provider's logs and Claude Code session files.
     """
     pb = PendingBilling(
         request_id=request_id,
@@ -38,6 +42,7 @@ async def write_pending_billing(
         output_tokens=output_tokens,
         cache_read_tokens=cache_read_tokens,
         cache_creation_tokens=cache_creation_tokens,
+        upstream_message_id=upstream_message_id,
         status="pending",
         retry_count=0,
     )
