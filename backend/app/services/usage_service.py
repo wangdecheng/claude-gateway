@@ -4,6 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.api_key import ApiKey
+from app.models.model import ChannelConfig
 from app.models.usage import UsageRecord
 from app.models.user import User
 
@@ -126,8 +127,12 @@ async def get_user_usage_history(
     user: User,
     page: int = 1,
     page_size: int = 20,
-) -> tuple[list[UsageRecord], int]:
-    """Get paginated usage history for the current user."""
+) -> tuple[list[UsageRecord], int, dict[int, str]]:
+    """Get paginated usage history for the current user.
+
+    Returns (records, total, channel_map) where channel_map maps
+    channel_id -> channel name for efficient name lookup.
+    """
     # Total count
     count_result = await db.execute(
         select(func.count(UsageRecord.id)).where(UsageRecord.user_id == user.id)
@@ -145,4 +150,15 @@ async def get_user_usage_history(
     )
     records = list(result.scalars().all())
 
-    return records, total
+    # Batch-fetch channel names referenced by these records
+    channel_ids = {r.channel_id for r in records if r.channel_id is not None}
+    channel_map: dict[int, str] = {}
+    if channel_ids:
+        ch_result = await db.execute(
+            select(ChannelConfig.id, ChannelConfig.name).where(
+                ChannelConfig.id.in_(channel_ids)
+            )
+        )
+        channel_map = {row[0]: row[1] or "" for row in ch_result.all()}
+
+    return records, total, channel_map

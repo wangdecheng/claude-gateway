@@ -31,6 +31,8 @@ class UsageRecordResponse(BaseModel):
     cache_creation_tokens: int = Field(..., alias="cacheCreationTokens")
     output_tokens: int = Field(..., alias="outputTokens")
     cost_cents: int = Field(..., alias="costCents")
+    channel_id: int | None = Field(None, alias="channelId")
+    channel_name: str | None = Field(None, alias="channelName")
     created_at: datetime = Field(..., alias="createdAt")
 
     model_config = {"populate_by_name": True}
