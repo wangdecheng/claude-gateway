@@ -44,7 +44,6 @@ async def compute_costs_for_pending(
     cache_creation_price is set to input_price (industry default).
     """
     from app.models.model import ChannelConfig, Model
-    from app.models.pending_billing import PendingBilling
 
     channel = await db.scalar(
         select(ChannelConfig).where(ChannelConfig.id == pending.channel_id)

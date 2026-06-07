@@ -105,7 +105,10 @@ class BillingWorker:
                         await mark_retry(db, pb, exc)
                         if max_retry_reached(pb, self.max_retry):
                             pb.status = "dead"
-                            logger.error("PendingBilling %s marked dead after %d retries", pb_id, pb.retry_count)
+                            logger.error(
+                                "PendingBilling %s marked dead after %d retries",
+                                pb_id, pb.retry_count,
+                            )
                         await db.commit()
                 except Exception:
                     logger.exception("mark_retry also failed for %s", pb_id)
