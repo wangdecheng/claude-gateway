@@ -24,3 +24,27 @@ class RedemptionHistoryItem(BaseModel):
 
 class RedemptionHistoryResponse(BaseModel):
     items: list[RedemptionHistoryItem]
+
+
+class AdminRedemptionCreateRequest(BaseModel):
+    amount: int = Field(..., gt=0, description="兑换金额（分）")
+    expires_in_days: int = Field(
+        5,
+        alias="expiresInDays",
+        gt=0,
+        description="有效天数",
+    )
+
+    model_config = {"populate_by_name": True}
+
+
+class AdminRedemptionCreateResponse(BaseModel):
+    id: int
+    code: str
+    code_prefix: str = Field(..., alias="codePrefix")
+    amount: int
+    status: str
+    expires_at: str = Field(..., alias="expiresAt")
+    created_at: str = Field(..., alias="createdAt")
+
+    model_config = {"populate_by_name": True}
