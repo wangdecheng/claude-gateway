@@ -58,10 +58,23 @@ def create_app() -> FastAPI:
 
         app.state.provider_registry = ProviderRegistry(settings=settings)
 
+        # Start billing worker
+        from app.services.billing.worker import BillingWorker
+
+        app.state.billing_worker = BillingWorker(session_factory)
+        await app.state.billing_worker.start()
+        logger.info("BillingWorker started")
+
         logger.info("Application startup complete")
         yield
 
         # Shutdown
+        # Stop billing worker
+        bw = getattr(app.state, "billing_worker", None)
+        if bw is not None:
+            await bw.stop()
+            logger.info("BillingWorker stopped")
+
         reg = getattr(app.state, "provider_registry", None)
         if reg is not None:
             await reg.cleanup()
