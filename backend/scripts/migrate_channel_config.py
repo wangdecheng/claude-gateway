@@ -43,8 +43,8 @@ async def migrate(db: AsyncSession) -> None:
     logger.info("Found %d channel_configs rows", len(configs))
 
     if not configs:
-        logger.info("No channel_configs to migrate; dropping the table")
-        await db.execute(text("DROP TABLE channel_configs"))
+        logger.info("No channel_configs to migrate; dropping the table (CASCADE)")
+        await db.execute(text("DROP TABLE channel_configs CASCADE"))
         await db.commit()
         return
 
@@ -114,8 +114,8 @@ async def migrate(db: AsyncSession) -> None:
             {"pid": new_pid, "id": ck_id},
         )
 
-    # 6. Drop channel_configs.
-    await db.execute(text("DROP TABLE channel_configs"))
+    # 6. Drop channel_configs (CASCADE to drop dependent FKs in usage_records etc.).
+    await db.execute(text("DROP TABLE channel_configs CASCADE"))
 
     await db.commit()
     logger.info("Migration complete: %d model_providers rows; %d providers", len(configs), len(cc_to_provider))
