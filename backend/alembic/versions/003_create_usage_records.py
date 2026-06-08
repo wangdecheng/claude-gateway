@@ -24,9 +24,10 @@ def upgrade() -> None:
         sa.Column("user_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=False),
         sa.Column("api_key_id", sa.Integer(), sa.ForeignKey("api_keys.id"), nullable=False),
         sa.Column("model", sa.String(100), nullable=False),
-        sa.Column("request_tokens", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("response_tokens", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("total_tokens", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("input_tokens", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("cache_read_tokens", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("cache_creation_tokens", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("output_tokens", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("cost_cents", sa.Integer(), nullable=False, server_default="0"),
         sa.Column(
             "created_at",

@@ -34,11 +34,11 @@ def upgrade() -> None:
     op.execute("UPDATE providers SET channel_name = name WHERE channel_name IS NULL")
     with op.batch_alter_table("providers") as batch:
         batch.alter_column("channel_name", nullable=False)
-    # Drop the old unique constraint on name (we now have composite unique)
-    try:
-        op.drop_constraint("uq_providers_name", "providers", type_="unique")
-    except Exception:
-        pass  # may not exist on some DBs
+    # Drop the old unique constraint on name (we now have composite unique).
+    # The constraint is auto-named `providers_name_key` in 004_create_providers_models_channels.py.
+    # We can't use try/except here because PostgreSQL aborts the transaction on any
+    # failed DDL, breaking subsequent statements.
+    op.drop_constraint("providers_name_key", "providers", type_="unique")
     op.create_unique_constraint(
         "uq_providers_name_channel_name", "providers", ["name", "channel_name"]
     )
@@ -50,7 +50,7 @@ def upgrade() -> None:
         sa.Column("model_id", sa.Integer(), sa.ForeignKey("models.id"), nullable=False),
         sa.Column("provider_id", sa.Integer(), sa.ForeignKey("providers.id"), nullable=False),
         sa.Column("provider_model", sa.String(200), nullable=False),
-        sa.Column("is_default", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+        sa.Column("is_default", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
@@ -108,7 +108,9 @@ def upgrade() -> None:
     )
 
     # 5. Drop channel_configs (data migration must have run first).
-    op.drop_table("channel_configs")
+    # CASCADE because earlier migrations (11bbcc1, d8f5f38) added FKs from
+    # request_logs / pending_billings / usage_records pointing at channel_configs.
+    op.execute("DROP TABLE channel_configs CASCADE")
 
 
 def downgrade() -> None:

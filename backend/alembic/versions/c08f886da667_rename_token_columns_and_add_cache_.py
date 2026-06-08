@@ -1,14 +1,16 @@
 """rename token columns and add cache fields
 
+Originally attempted to rename request_tokens/response_tokens/cache_hit_tokens.
+The first migration `003_create_usage_records.py` was updated in-place to use
+the new column names (input_tokens/output_tokens/cache_read_tokens/
+cache_creation_tokens), so this migration is now a no-op. Kept in the chain
+so that DBs that already ran the original renames can still upgrade head.
+
 Revision ID: c08f886da667
 Revises: 03fa53dc7d91
 Create Date: 2026-06-06 23:38:11.248115
 """
 from typing import Sequence, Union
-
-from alembic import op
-import sqlalchemy as sa
-
 
 # revision identifiers, used by Alembic.
 revision: str = 'c08f886da667'
@@ -18,14 +20,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.alter_column("usage_records", "request_tokens", new_column_name="input_tokens")
-    op.alter_column("usage_records", "response_tokens", new_column_name="output_tokens")
-    op.alter_column("usage_records", "cache_hit_tokens", new_column_name="cache_read_tokens")
-    op.drop_column("usage_records", "total_tokens")
+    # No-op: column renames now happen in 003_create_usage_records.py directly.
+    pass
 
 
 def downgrade() -> None:
-    op.alter_column("usage_records", "input_tokens", new_column_name="request_tokens")
-    op.alter_column("usage_records", "output_tokens", new_column_name="response_tokens")
-    op.alter_column("usage_records", "cache_read_tokens", new_column_name="cache_hit_tokens")
-    op.add_column("usage_records", sa.Column("total_tokens", sa.Integer(), nullable=False, server_default="0"))
+    # No-op.
+    pass
