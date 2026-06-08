@@ -1,8 +1,11 @@
 from fastapi import APIRouter, Depends
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_db
 from app.dependencies import get_current_user
+from app.exceptions import AppException
+from app.models.provider import Provider
 from app.models.user import User
 from app.schemas.api_key import CreateKeyRequest, CreateKeyResponse, KeyResponse
 from app.schemas.common import ErrorResponse
@@ -17,6 +20,7 @@ router = APIRouter(prefix="/api/keys", tags=["keys"])
     status_code=201,
     responses={
         422: {"model": ErrorResponse, "description": "Validation error"},
+        400: {"model": ErrorResponse, "description": "Channel not available"},
     },
 )
 async def create_key(
@@ -24,13 +28,25 @@ async def create_key(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    api_key, raw_key = await create_api_key(db, user=user, name=body.name)
+    # Validate the chosen channel
+    p = await db.execute(select(Provider).where(Provider.id == body.channel_id))
+    provider = p.scalar_one_or_none()
+    if not provider or provider.status != "active":
+        raise AppException(
+            status_code=400, error="选择的渠道不可用", code="CHANNEL_UNAVAILABLE"
+        )
+
+    api_key, raw_key = await create_api_key(
+        db, user=user, name=body.name, channel_id=body.channel_id
+    )
     return {
         "id": api_key.id,
         "name": api_key.name,
         "keyPrefix": api_key.key_prefix,
         "rawKey": raw_key,
         "status": api_key.status,
+        "channelId": api_key.channel_id,
+        "channelName": provider.channel_name,
         "createdAt": api_key.created_at,
     }
 
@@ -44,6 +60,16 @@ async def list_keys(
     db: AsyncSession = Depends(get_db),
 ):
     keys = await list_api_keys(db, user=user)
+
+    # Bulk-fetch provider names in one query
+    provider_ids = {k.channel_id for k in keys if k.channel_id is not None}
+    name_by_id: dict[int, str] = {}
+    if provider_ids:
+        rows = await db.execute(
+            select(Provider.id, Provider.channel_name).where(Provider.id.in_(provider_ids))
+        )
+        name_by_id = {pid: cname for pid, cname in rows.all()}
+
     return [
         {
             "id": k.id,
@@ -52,6 +78,8 @@ async def list_keys(
             "status": k.status,
             "createdAt": k.created_at,
             "lastUsedAt": k.last_used_at,
+            "channelId": k.channel_id,
+            "channelName": name_by_id.get(k.channel_id) if k.channel_id else None,
         }
         for k in keys
     ]

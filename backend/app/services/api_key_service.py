@@ -25,7 +25,9 @@ def hash_key(raw_key: str) -> str:
     return bcrypt.hashpw(raw_key.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
-async def create_api_key(db: AsyncSession, user: User, name: str) -> tuple[ApiKey, str]:
+async def create_api_key(
+    db: AsyncSession, user: User, name: str, channel_id: int
+) -> tuple[ApiKey, str]:
     raw_key, key_prefix = generate_key()
 
     api_key = ApiKey(
@@ -34,6 +36,7 @@ async def create_api_key(db: AsyncSession, user: User, name: str) -> tuple[ApiKe
         key_prefix=key_prefix,
         key_hash=hash_key(raw_key),
         status="active",
+        channel_id=channel_id,
     )
     db.add(api_key)
     await db.commit()
