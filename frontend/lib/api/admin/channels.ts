@@ -8,10 +8,10 @@ export interface AdminChannelItem {
   modelStatus: "active" | "inactive";
   providerId: number;
   providerName: string;
+  providerChannelName: string;
+  providerMultiplier: number;
   providerStatus: "active" | "inactive";
-  name: string;
-  providerModelId: string;
-  multiplier: number;
+  providerModel: string;
   isDefault: boolean;
   status: "active" | "inactive";
   createdAt: string;
@@ -20,16 +20,12 @@ export interface AdminChannelItem {
 export interface ChannelCreateInput {
   modelId: number;
   providerId: number;
-  name: string;
-  providerModelId: string;
-  multiplier: number;
+  providerModel: string;
   isDefault?: boolean;
 }
 
 export interface ChannelUpdateInput {
-  name?: string;
-  providerModelId?: string;
-  multiplier?: number;
+  providerModel?: string;
   isDefault?: boolean;
 }
 
@@ -50,9 +46,7 @@ export function useCreateChannel() {
         body: JSON.stringify({
           modelId: data.modelId,
           providerId: data.providerId,
-          name: data.name,
-          providerModelId: data.providerModelId,
-          multiplier: data.multiplier,
+          providerModel: data.providerModel,
           isDefault: data.isDefault ?? false,
         }),
       }),

@@ -2,7 +2,7 @@
 
 Each POST /v1/messages (or equivalent) creates one RequestLog row capturing:
   - Who made the request (user_id, sk_id)
-  - What was requested (model_id, channel_id, provider_id)
+  - What was requested (model_id, route_id, provider_id)
   - How many tokens were consumed (input_tokens, output_tokens)
   - How much it cost (cost_cents, computed with channel multiplier)
   - Whether the upstream response included valid usage data (status)
@@ -43,8 +43,8 @@ class RequestLog(Base):
 
     # What — denormalised for query performance (avoids joins on hot path)
     model_id: Mapped[int] = mapped_column(Integer, ForeignKey("models.id"), nullable=False)
-    channel_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("channel_configs.id"), nullable=False
+    route_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("model_providers.id"), nullable=False
     )
     provider_id: Mapped[int] = mapped_column(Integer, ForeignKey("providers.id"), nullable=False)
 
@@ -64,7 +64,7 @@ class RequestLog(Base):
         String(64), nullable=True, index=True
     )
 
-    # Cost — computed as (input × input_price + output × output_price × channel.multiplier)
+    # Cost — computed as (input × input_price + output × output_price × provider.multiplier)
     # Stored in cents (分). Always ≥ 0.
     cost_cents: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, comment="Cost in cents (分)"

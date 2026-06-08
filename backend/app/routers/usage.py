@@ -72,8 +72,8 @@ async def usage_history(
                 "cacheCreationTokens": r.cache_creation_tokens,
                 "outputTokens": r.output_tokens,
                 "costCents": r.cost_cents,
-                "channelId": r.channel_id,
-                "channelName": channel_map.get(r.channel_id) if r.channel_id else None,
+                "channelId": r.route_id,
+                "channelName": channel_map.get(r.route_id) if r.route_id else None,
                 "upstreamMessageId": r.upstream_message_id,
                 "createdAt": r.created_at,
             }

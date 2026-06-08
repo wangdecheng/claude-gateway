@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import DateTime, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -25,22 +25,6 @@ class Model(Base):
         comment="Cache read price in micro yuan per 1K tokens",
     )
     status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-
-
-class ChannelConfig(Base):
-    __tablename__ = "channel_configs"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    model_id: Mapped[int] = mapped_column(Integer, ForeignKey("models.id"), nullable=False)
-    provider_id: Mapped[int] = mapped_column(Integer, ForeignKey("providers.id"), nullable=False)
-    provider_model_id: Mapped[str] = mapped_column(String(200), nullable=False)
-    name: Mapped[str] = mapped_column(String(50), nullable=False)
-    multiplier: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
-    status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
-    is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

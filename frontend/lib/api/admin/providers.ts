@@ -6,6 +6,8 @@ import { apiClient, ApiClientError } from "../client";
 export interface AdminProviderItem {
   id: number;
   name: string;
+  channelName: string;
+  multiplier: number;
   apiBaseUrl: string;
   authHeader: string;
   adapter: string;
@@ -24,6 +26,8 @@ export interface ProviderKeyItem {
 
 export interface ProviderCreateInput {
   name: string;
+  channelName: string;
+  multiplier?: number;
   apiBaseUrl: string;
   authHeader?: string;
   adapter?: string;
@@ -31,7 +35,8 @@ export interface ProviderCreateInput {
 }
 
 export interface ProviderUpdateInput {
-  name?: string;
+  channelName?: string;
+  multiplier?: number;
   apiBaseUrl?: string;
   authHeader?: string;
   adapter?: string;
@@ -60,6 +65,8 @@ export function useCreateProvider() {
         method: "POST",
         body: JSON.stringify({
           name: data.name,
+          channelName: data.channelName,
+          multiplier: data.multiplier ?? 1.0,
           apiBaseUrl: data.apiBaseUrl,
           authHeader: data.authHeader ?? "Authorization",
           adapter: data.adapter ?? "openai-chat-completions",

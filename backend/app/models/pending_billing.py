@@ -57,8 +57,8 @@ class PendingBilling(Base):
     model_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("models.id"), nullable=False
     )
-    channel_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("channel_configs.id"), nullable=False
+    route_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("model_providers.id"), nullable=False
     )
     provider_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("providers.id"), nullable=False

@@ -67,9 +67,7 @@ export default function AdminChannelsPage() {
         await updateMutation.mutateAsync({
           id: editingChannel.id,
           data: {
-            name: data.name || undefined,
-            providerModelId: data.providerModelId || undefined,
-            multiplier: data.multiplier,
+            providerModel: data.providerModel,
             isDefault: data.isDefault,
           },
         });
@@ -77,9 +75,7 @@ export default function AdminChannelsPage() {
         await createMutation.mutateAsync({
           modelId: data.modelId,
           providerId: data.providerId,
-          name: data.name,
-          providerModelId: data.providerModelId,
-          multiplier: data.multiplier,
+          providerModel: data.providerModel,
           isDefault: data.isDefault,
         });
       }
@@ -139,15 +135,16 @@ export default function AdminChannelsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-neutral-text-primary">
-            渠道倍率配置
+            模型 × 渠道路由
           </h1>
           <p className="mt-1 text-sm text-neutral-text-secondary">
-            为每个供应商-模型组合配置上游模型 ID、倍率和默认渠道
+            为每个模型与渠道(供应商)的组合配置上游模型 ID；渠道名与倍率请在
+            <a href="/admin/providers" className="ml-1 underline">供应商管理</a>中设置。
           </p>
         </div>
         <Button onClick={openCreate}>
           <Plus className="mr-2 h-4 w-4" />
-          添加渠道
+          添加路由
         </Button>
       </div>
 
@@ -157,11 +154,11 @@ export default function AdminChannelsPage() {
             <tr className="border-b border-slate-200 bg-slate-50 text-left text-sm text-neutral-text-secondary">
               <th className="px-4 py-3 font-medium">模型</th>
               <th className="px-4 py-3 font-medium">供应商</th>
-              <th className="px-4 py-3 font-medium">渠道名称</th>
+              <th className="px-4 py-3 font-medium">渠道名</th>
               <th className="px-4 py-3 font-medium">上游模型 ID</th>
               <th className="px-4 py-3 text-right font-medium">倍率</th>
               <th className="px-4 py-3 font-medium">默认</th>
-              <th className="px-4 py-3 font-medium">渠道状态</th>
+              <th className="px-4 py-3 font-medium">状态</th>
               <th className="px-4 py-3 font-medium">模型/供应商</th>
               <th className="px-4 py-3 text-right font-medium">操作</th>
             </tr>
@@ -170,7 +167,7 @@ export default function AdminChannelsPage() {
             {(!channels || channels.length === 0) && (
               <tr>
                 <td colSpan={9} className="px-4 py-12 text-center text-sm text-neutral-text-secondary">
-                  还没有渠道配置，点击"添加渠道"开始
+                  还没有路由，点击"添加路由"开始
                 </td>
               </tr>
             )}
@@ -183,15 +180,15 @@ export default function AdminChannelsPage() {
                   {channel.providerName}
                 </td>
                 <td className="px-4 py-3 text-neutral-text-primary">
-                  {channel.name}
+                  {channel.providerChannelName}
                 </td>
                 <td className="px-4 py-3">
                   <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
-                    {channel.providerModelId}
+                    {channel.providerModel}
                   </code>
                 </td>
                 <td className="px-4 py-3 text-right font-mono text-sm">
-                  {channel.multiplier.toFixed(2)}x
+                  {channel.providerMultiplier.toFixed(2)}x
                 </td>
                 <td className="px-4 py-3">
                   {channel.isDefault ? <Badge variant="success">默认</Badge> : <span className="text-neutral-text-muted">—</span>}
@@ -207,7 +204,7 @@ export default function AdminChannelsPage() {
                       模型{channel.modelStatus === "active" ? "上架" : "下架"}
                     </Badge>
                     <Badge variant={channel.providerStatus === "active" ? "success" : "muted"}>
-                      供应商{channel.providerStatus === "active" ? "启用" : "停用"}
+                      渠道{channel.providerStatus === "active" ? "启用" : "停用"}
                     </Badge>
                   </div>
                 </td>
@@ -253,16 +250,16 @@ export default function AdminChannelsPage() {
       <Dialog open={toggleConfirm !== null} onOpenChange={(open) => !open && setToggleConfirm(null)}>
         <DialogContent className="sm:max-w-[420px]">
           <DialogHeader>
-            <DialogTitle>{toggleConfirm?.status === "active" ? "停用渠道" : "启用渠道"}</DialogTitle>
+            <DialogTitle>{toggleConfirm?.status === "active" ? "停用路由" : "启用路由"}</DialogTitle>
             <DialogDescription>
               {toggleConfirm?.status === "active"
-                ? "停用后，用户新建 sk 时不再展示该渠道。"
-                : "启用后，用户可再次选择该渠道。"}
+                ? "停用后，该模型在此渠道上的路由将不再可用。"
+                : "启用后，该模型在此渠道上的路由将恢复可用。"}
             </DialogDescription>
           </DialogHeader>
           {toggleConfirm && (
             <div className="rounded-md bg-slate-100 p-3 text-sm">
-              <span className="font-mono">{toggleConfirm.modelName}</span> → {toggleConfirm.providerName}
+              <span className="font-mono">{toggleConfirm.modelName}</span> → {toggleConfirm.providerName} ({toggleConfirm.providerChannelName})
             </div>
           )}
           <DialogFooter>
@@ -280,16 +277,14 @@ export default function AdminChannelsPage() {
       <Dialog open={!!deleteTarget} onOpenChange={() => { setDeleteTarget(null); setDeleteError(null); }}>
         <DialogContent className="sm:max-w-[420px]">
           <DialogHeader>
-            <DialogTitle>删除渠道</DialogTitle>
+            <DialogTitle>删除路由</DialogTitle>
             <DialogDescription>
-              确定要删除此渠道配置吗？
-              <br />
-              删除后该供应商-模型组合将不再可用。
+              确定要删除此路由吗？删除后该模型在此渠道上将不再可用。
             </DialogDescription>
           </DialogHeader>
           {deleteTarget && (
             <div className="rounded-md bg-slate-100 p-3 text-sm">
-              <span className="font-mono">{deleteTarget.modelName}</span> → {deleteTarget.providerName}
+              <span className="font-mono">{deleteTarget.modelName}</span> → {deleteTarget.providerName} ({deleteTarget.providerChannelName})
             </div>
           )}
           {deleteError && (
@@ -318,9 +313,7 @@ export default function AdminChannelsPage() {
 interface ChannelFormValues {
   modelId: number;
   providerId: number;
-  name: string;
-  providerModelId: string;
-  multiplier: number;
+  providerModel: string;
   isDefault: boolean;
 }
 
@@ -344,25 +337,21 @@ function ChannelFormDialog({
 
   const [modelId, setModelId] = useState(channel?.modelId ?? 0);
   const [providerId, setProviderId] = useState(channel?.providerId ?? 0);
-  const [name, setName] = useState(channel?.name ?? "");
-  const [providerModelId, setProviderModelId] = useState(channel?.providerModelId ?? "");
-  const [multiplier, setMultiplier] = useState(channel?.multiplier ?? 1.0);
+  const [providerModel, setProviderModel] = useState(channel?.providerModel ?? "");
   const [isDefault, setIsDefault] = useState(channel?.isDefault ?? false);
 
   useEffect(() => {
     if (open) {
       setModelId(channel?.modelId ?? 0);
       setProviderId(channel?.providerId ?? 0);
-      setName(channel?.name ?? "");
-      setProviderModelId(channel?.providerModelId ?? "");
-      setMultiplier(channel?.multiplier ?? 1.0);
+      setProviderModel(channel?.providerModel ?? "");
       setIsDefault(channel?.isDefault ?? false);
     }
   }, [open, channel]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    await onSubmit({ modelId, providerId, name, providerModelId, multiplier, isDefault });
+    await onSubmit({ modelId, providerId, providerModel, isDefault });
   };
 
   return (
@@ -372,9 +361,7 @@ function ChannelFormDialog({
         if (!nextOpen) {
           setModelId(0);
           setProviderId(0);
-          setName("");
-          setProviderModelId("");
-          setMultiplier(1.0);
+          setProviderModel("");
           setIsDefault(false);
         }
         onOpenChange(nextOpen);
@@ -383,9 +370,10 @@ function ChannelFormDialog({
       <DialogContent className="sm:max-w-[520px]">
         <form onSubmit={handleSubmit} className="space-y-4">
           <DialogHeader>
-            <DialogTitle>{channel ? "编辑渠道" : "添加渠道"}</DialogTitle>
+            <DialogTitle>{channel ? "编辑路由" : "添加路由"}</DialogTitle>
             <DialogDescription>
-              配置模型与供应商之间的上游模型 ID、倍率和默认渠道。
+              绑定一个模型到一个供应商渠道。渠道名与倍率在
+              <a href="/admin/providers" className="ml-1 underline">供应商管理</a>中设置。
             </DialogDescription>
           </DialogHeader>
 
@@ -412,7 +400,7 @@ function ChannelFormDialog({
           </div>
 
           <div className="space-y-2">
-            <Label>供应商</Label>
+            <Label>供应商渠道</Label>
             <Select
               value={providerId ? String(providerId) : ""}
               onValueChange={(value) => setProviderId(Number(value))}
@@ -424,7 +412,7 @@ function ChannelFormDialog({
               <SelectContent>
                 {providers?.map((provider) => (
                   <SelectItem key={provider.id} value={String(provider.id)}>
-                    {provider.name}
+                    {provider.name} · {provider.channelName} (×{provider.multiplier})
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -432,48 +420,20 @@ function ChannelFormDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="channelName">
-              渠道名称 <span className="text-red-500">*</span>
-            </Label>
-            <Input
-              id="channelName"
-              placeholder="如 主力线路、Anthropic 官方"
-              maxLength={50}
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              required
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="providerModelId">
+            <Label htmlFor="providerModel">
               上游模型 ID <span className="text-red-500">*</span>
             </Label>
             <Input
-              id="providerModelId"
-              placeholder="如 deepseekV4-pro"
+              id="providerModel"
+              placeholder="如 deepseekV4-pro / claude-sonnet-4-6-20250501"
               maxLength={200}
-              value={providerModelId}
-              onChange={(event) => setProviderModelId(event.target.value)}
+              value={providerModel}
+              onChange={(event) => setProviderModel(event.target.value)}
               required
             />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="multiplier">倍率</Label>
-            <Input
-              id="multiplier"
-              type="number"
-              min="0.01"
-              step="0.01"
-              className="font-mono"
-              value={multiplier}
-              onChange={(event) => {
-                const parsed = parseFloat(event.target.value);
-                setMultiplier(isNaN(parsed) ? 0 : parsed);
-              }}
-              required
-            />
+            <p className="text-xs text-neutral-text-secondary">
+              该模型在此渠道上的真实上游名称。
+            </p>
           </div>
 
           <label className="flex items-center gap-2 text-sm text-neutral-text-primary">
@@ -483,7 +443,7 @@ function ChannelFormDialog({
               onChange={(event) => setIsDefault(event.target.checked)}
               className="h-4 w-4 rounded border-slate-300"
             />
-            设为默认渠道
+            设为该模型的默认路由
           </label>
 
           <DialogFooter>
@@ -496,9 +456,7 @@ function ChannelFormDialog({
                 isSubmitting ||
                 !modelId ||
                 !providerId ||
-                !name.trim() ||
-                !providerModelId.trim() ||
-                multiplier <= 0
+                !providerModel.trim()
               }
             >
               {isSubmitting ? "保存中..." : "保存"}

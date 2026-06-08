@@ -9,6 +9,18 @@ class ProviderCreate(BaseModel):
     """Schema for creating a new provider with optional initial keys."""
 
     name: str = Field(..., min_length=1, max_length=100)
+    channel_name: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        alias="channelName",
+        description="Display name for the channel this provider exposes (e.g. '主力线路', 'awsq').",
+    )
+    multiplier: float = Field(
+        1.0,
+        gt=0,
+        description="Pricing multiplier — final price = model_price × multiplier.",
+    )
     api_base_url: str = Field(
         ...,
         min_length=1,
@@ -41,6 +53,14 @@ class ProviderCreate(BaseModel):
             raise ValueError("供应商名称不能为空")
         return stripped
 
+    @field_validator("channel_name")
+    @classmethod
+    def channel_name_not_empty(cls, v: str) -> str:
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("渠道名不能为空")
+        return stripped
+
     @field_validator("api_base_url")
     @classmethod
     def url_not_empty(cls, v: str) -> str:
@@ -55,8 +75,17 @@ class ProviderUpdate(BaseModel):
 
     Per AC-3, only api_base_url, auth_header, and adapter are editable.
     Name changes are not supported via update to avoid uniqueness issues.
+    Channel name and multiplier are editable so admins can re-tier pricing
+    without recreating the provider.
     """
 
+    channel_name: str | None = Field(
+        None,
+        min_length=1,
+        max_length=100,
+        alias="channelName",
+    )
+    multiplier: float | None = Field(None, gt=0)
     api_base_url: str | None = Field(
         None,
         min_length=1,
@@ -89,6 +118,8 @@ class AdminProviderResponse(BaseModel):
 
     id: int
     name: str
+    channel_name: str = Field(..., alias="channelName")
+    multiplier: float
     api_base_url: str = Field(..., alias="apiBaseUrl")
     auth_header: str = Field(..., alias="authHeader")
     adapter: str

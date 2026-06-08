@@ -167,7 +167,8 @@ async def test_compute_costs_for_pending_loads_prices_and_multiplier():
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
     from app.database import Base
     from app.models.api_key import ApiKey
-    from app.models.model import ChannelConfig, Model
+    from app.models.model import Model
+    from app.models.model_provider_route import ModelProviderRoute
     from app.models.pending_billing import PendingBilling
     from app.models.provider import Provider
     from app.models.user import User
@@ -177,16 +178,16 @@ async def test_compute_costs_for_pending_loads_prices_and_multiplier():
         await conn.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with factory() as session:
-        # Seed with multiplier=0.5 channel
+        # Seed with multiplier=0.5 provider (channel multiplier now lives on provider)
         session.add(User(id=1, email="t@e.com", password_hash="x", balance=1000, role="user", status="active"))
-        session.add(Provider(id=1, name="p", channel_name="p", api_base_url="http://x", auth_header="Authorization", adapter="openai-chat-completions", status="active"))
+        session.add(Provider(id=1, name="p", channel_name="p", api_base_url="http://x", auth_header="Authorization", adapter="openai-chat-completions", multiplier=0.5, status="active"))
         session.add(Model(id=1, public_name="m", input_price=15000, output_price=75000, cache_read_price=0, status="active"))
-        session.add(ChannelConfig(id=1, model_id=1, provider_id=1, name="default", provider_model_id="m", multiplier=0.5, is_default=True, status="active"))
+        session.add(ModelProviderRoute(id=1, model_id=1, provider_id=1, provider_model="m", is_default=True, status="active"))
         session.add(ApiKey(id=1, user_id=1, name="k", key_prefix="sk-abc", key_hash="h", status="active"))
         await session.flush()
         pb = PendingBilling(
             request_id=uuid.uuid4(),
-            user_id=1, api_key_id=1, model_id=1, channel_id=1, provider_id=1,
+            user_id=1, api_key_id=1, model_id=1, route_id=1, provider_id=1,
             input_tokens=1000, output_tokens=1000,
             cache_read_tokens=0, cache_creation_tokens=0,
             status="pending",

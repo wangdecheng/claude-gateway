@@ -4,7 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions import AppException
-from app.models.model import ChannelConfig, Model
+from app.models.model import Model
 from app.models.model_provider_route import ModelProviderRoute
 from app.models.provider import Provider
 from app.models.request_log import RequestLog
@@ -306,7 +306,7 @@ async def toggle_model_status(db: AsyncSession, model_id: int) -> dict:
 async def delete_model(db: AsyncSession, model_id: int) -> dict:
     """Delete a model — hard if no RequestLog references, soft otherwise.
 
-    Blocked if ChannelConfig records still reference this model.
+    Blocked if ModelProviderRoute records still reference this model.
     """
     result = await db.execute(select(Model).where(Model.id == model_id))
     model = result.scalar_one_or_none()
@@ -316,13 +316,16 @@ async def delete_model(db: AsyncSession, model_id: int) -> dict:
         raise AppException(status_code=404, error="模型不存在", code="MODEL_NOT_FOUND")
 
     ch_count_result = await db.execute(
-        select(func.count(ChannelConfig.id)).where(ChannelConfig.model_id == model_id)
+        select(func.count(ModelProviderRoute.id)).where(
+            ModelProviderRoute.model_id == model_id,
+            ModelProviderRoute.status != "deleted",
+        )
     )
     channel_count = ch_count_result.scalar_one()
     if channel_count > 0:
         raise AppException(
             status_code=409,
-            error=f"无法删除：该模型下有 {channel_count} 个渠道配置，请先删除关联渠道",
+            error=f"无法删除：该模型下有 {channel_count} 个渠道路由，请先删除关联渠道",
             code="HAS_DEPENDENTS",
         )
 

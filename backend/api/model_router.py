@@ -33,7 +33,7 @@ class ResolvedModel:
     # DB references for billing
     db_model_id: int | None = None
     db_provider_id: int | None = None
-    db_channel_id: int | None = None
+    db_route_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,7 +142,7 @@ class ModelRouter:
             thinking_enabled=self._settings.enable_model_thinking,
             db_model_id=model.id,
             db_provider_id=provider.id,
-            db_channel_id=provider.id,
+            db_route_id=route.id,
         )
 
     def _direct_provider_model(self, model_name: str) -> tuple[str | None, str | None, bool | None]:
@@ -181,7 +181,7 @@ class ModelRouter:
         model_name: str,
         channel_id: int,
     ) -> "ResolvedModel":
-        """Resolve a model constrained to a specific provider/channel.
+        """Resolve a model constrained to a specific provider (channel).
 
         Raises:
             AppException(400, MODEL_NOT_IN_CHANNEL) if the model is not on the channel.
@@ -239,5 +239,5 @@ class ModelRouter:
             thinking_enabled=self._settings.enable_model_thinking,
             db_model_id=model.id,
             db_provider_id=provider.id,
-            db_channel_id=channel_id,
+            db_route_id=route.id,
         )

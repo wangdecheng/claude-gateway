@@ -42,7 +42,7 @@ async def settle_one(db: AsyncSession, pending: PendingBilling) -> None:
         user_id=pending.user_id,
         sk_id=pending.api_key_id,
         model_id=pending.model_id,
-        channel_id=pending.channel_id,
+        route_id=pending.route_id,
         provider_id=pending.provider_id,
         input_tokens=pending.input_tokens,
         output_tokens=pending.output_tokens,
@@ -74,7 +74,7 @@ async def settle_one(db: AsyncSession, pending: PendingBilling) -> None:
             cache_read_tokens=pending.cache_read_tokens,
             cache_creation_tokens=pending.cache_creation_tokens,
             cost_cents=cost,
-            channel_id=pending.channel_id,
+            route_id=pending.route_id,
             upstream_message_id=pending.upstream_message_id,
         )
     )

@@ -1,4 +1,4 @@
-"""Seed development data: providers, models, channel configs, and admin user.
+"""Seed development data: providers, models, model-provider routes, and admin user.
 
 Run: cd backend && python -m app.seed
 """
@@ -8,7 +8,8 @@ import asyncio
 from sqlalchemy import select
 
 from app.database import create_async_engine_and_sessionmaker
-from app.models.model import ChannelConfig, Model
+from app.models.model import Model
+from app.models.model_provider_route import ModelProviderRoute
 from app.models.provider import Provider
 from app.models.user import User
 from app.services.auth_service import hash_password
@@ -18,18 +19,25 @@ from config.settings import get_settings
 SEED_ADMIN_EMAIL = "287187910@qq.com"
 SEED_ADMIN_PASSWORD = "Ou.TokuSei1"
 
+# (provider name, channel_name, api_base_url, multiplier)
 SEED_PROVIDERS = [
     {
         "name": "Anthropic",
+        "channel_name": "Anthropic 官方",
         "api_base_url": "https://api.anthropic.com",
+        "multiplier": 1.0,
     },
     {
         "name": "OpenAI",
+        "channel_name": "OpenAI 官方",
         "api_base_url": "https://api.openai.com",
+        "multiplier": 1.0,
     },
     {
         "name": "RightCodes",
+        "channel_name": "RightCodes 备用",
         "api_base_url": "https://api.rightcodes.com",
+        "multiplier": 1.2,
     },
 ]
 
@@ -66,20 +74,20 @@ SEED_MODELS = [
     },
 ]
 
-# Channel configs: (model_name, provider_name, name, provider_model_id, multiplier, is_default)
-# Native channels at 1.0x (default), plus some cross-provider channels
-SEED_CHANNEL_CONFIGS = [
+# Routes: (model_name, provider_name, provider_model, is_default)
+# Native channels at the provider's multiplier (default), plus cross-provider routes.
+SEED_ROUTES = [
     # Native Anthropic models
-    ("claude-opus-4-8", "Anthropic", "Anthropic 官方", "claude-opus-4-8-20250501", 1.0, True),
-    ("claude-sonnet-4-6", "Anthropic", "Anthropic 官方", "claude-sonnet-4-6-20250501", 1.0, True),
-    ("claude-haiku-4-5", "Anthropic", "Anthropic 官方", "claude-haiku-4-5-20251001", 1.0, True),
+    ("claude-opus-4-8", "Anthropic", "claude-opus-4-8-20250501", True),
+    ("claude-sonnet-4-6", "Anthropic", "claude-sonnet-4-6-20250501", True),
+    ("claude-haiku-4-5", "Anthropic", "claude-haiku-4-5-20251001", True),
     # Native OpenAI models
-    ("gpt-4o", "OpenAI", "OpenAI 官方", "gpt-4o", 1.0, True),
-    ("gpt-4o-mini", "OpenAI", "OpenAI 官方", "gpt-4o-mini", 1.0, True),
+    ("gpt-4o", "OpenAI", "gpt-4o", True),
+    ("gpt-4o-mini", "OpenAI", "gpt-4o-mini", True),
     # Cross-provider via RightCodes (higher multiplier)
-    ("claude-opus-4-8", "RightCodes", "RightCodes 备用", "claude-opus-4-8-20250501", 1.2, False),
-    ("claude-haiku-4-5", "RightCodes", "RightCodes 备用", "claude-haiku-4-5-20251001", 1.5, False),
-    ("gpt-4o-mini", "RightCodes", "RightCodes 备用", "gpt-4o-mini", 1.3, False),
+    ("claude-opus-4-8", "RightCodes", "claude-opus-4-8-20250501", False),
+    ("claude-haiku-4-5", "RightCodes", "claude-haiku-4-5-20251001", False),
+    ("gpt-4o-mini", "RightCodes", "gpt-4o-mini", False),
 ]
 
 
@@ -103,17 +111,19 @@ async def seed_dev_data(db=None) -> None:
             print("Seed data already exists, skipping.")
             return
 
-        # Insert providers
-        provider_map: dict[str, Provider] = {}
+        # Insert providers (with channel_name + multiplier)
+        provider_map: dict[tuple[str, str], Provider] = {}
         for pdata in SEED_PROVIDERS:
             provider = Provider(
                 name=pdata["name"],
+                channel_name=pdata["channel_name"],
+                multiplier=pdata["multiplier"],
                 api_base_url=pdata["api_base_url"],
                 status="active",
             )
             db.add(provider)
             await db.flush()  # get the ID
-            provider_map[provider.name] = provider
+            provider_map[(provider.name, provider.channel_name)] = provider
 
         # Insert models (no provider dependency)
         model_map: dict[str, Model] = {}
@@ -129,30 +139,37 @@ async def seed_dev_data(db=None) -> None:
             await db.flush()
             model_map[model.public_name] = model
 
-        # Insert channel configs (with provider_model_id and name)
-        for model_name, provider_name, channel_name, provider_model_id, multiplier, is_default in SEED_CHANNEL_CONFIGS:
+        # Insert routes (model_provider) — first one per (model, provider) is
+        # the default; subsequent ones are alternative channels.
+        for model_name, provider_name, provider_model, is_default in SEED_ROUTES:
             model = model_map[model_name]
-            provider = provider_map[provider_name]
-            ch = ChannelConfig(
+            provider = provider_map[(provider_name, _seed_channel_name_for(provider_name))]
+            route = ModelProviderRoute(
                 model_id=model.id,
                 provider_id=provider.id,
-                name=channel_name,
-                provider_model_id=provider_model_id,
-                multiplier=multiplier,
-                status="active",
+                provider_model=provider_model,
                 is_default=is_default,
+                status="active",
             )
-            db.add(ch)
+            db.add(route)
 
         await db.commit()
         print(
             f"Seeded {len(provider_map)} providers, "
             f"{len(model_map)} models, "
-            f"{len(SEED_CHANNEL_CONFIGS)} channel configs."
+            f"{len(SEED_ROUTES)} routes."
         )
     finally:
         if cleanup:
             await db.close()
+
+
+def _seed_channel_name_for(provider_name: str) -> str:
+    """Look up the channel_name used for this provider in SEED_PROVIDERS."""
+    for p in SEED_PROVIDERS:
+        if p["name"] == provider_name:
+            return p["channel_name"]
+    raise KeyError(f"No seed provider for {provider_name}")
 
 
 async def seed_admin_user(db=None) -> None:

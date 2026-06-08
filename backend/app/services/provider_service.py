@@ -1,9 +1,9 @@
-"""Provider, ProviderKey and ChannelConfig management service.
+"""Provider, ProviderKey and ModelProviderRoute management service.
 
 Handles:
   - Provider CRUD (list, create, update, toggle status)
   - ProviderKey CRUD (list masked, add, revoke)
-  - ChannelConfig CRUD for channel multiplier/default management
+  - ModelProviderRoute CRUD for (model ↔ provider) routing
   - AES-256-GCM encryption / decryption of upstream API keys
   - Key pool round-robin selection for proxy use
 """
@@ -21,8 +21,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.exceptions import AppException
-from app.models.channel_key import ChannelKey
-from app.models.model import ChannelConfig, Model
+from app.models.model import Model
+from app.models.model_provider_route import ModelProviderRoute
 from app.models.provider import Provider, ProviderKey
 from app.models.request_log import RequestLog
 from app.schemas.admin_provider import (
@@ -126,6 +126,8 @@ async def list_providers(db: AsyncSession) -> list[dict]:
         {
             "id": row.Provider.id,
             "name": row.Provider.name,
+            "channel_name": row.Provider.channel_name,
+            "multiplier": row.Provider.multiplier,
             "api_base_url": row.Provider.api_base_url,
             "auth_header": row.Provider.auth_header,
             "adapter": row.Provider.adapter,
@@ -139,18 +141,28 @@ async def list_providers(db: AsyncSession) -> list[dict]:
 
 
 async def create_provider(db: AsyncSession, data: ProviderCreate) -> Provider:
-    """Create a provider and optionally its initial key pool."""
-    # Check name uniqueness
-    existing = await db.execute(select(Provider).where(Provider.name == data.name))
+    """Create a provider and optionally its initial key pool.
+
+    Validates (name, channel_name) uniqueness before insert.
+    """
+    # Check (name, channel_name) uniqueness
+    existing = await db.execute(
+        select(Provider).where(
+            Provider.name == data.name,
+            Provider.channel_name == data.channel_name,
+        )
+    )
     if existing.scalar_one_or_none():
         raise AppException(
             status_code=409,
-            error="供应商名称已存在",
+            error="供应商 (name, channel_name) 组合已存在",
             code="PROVIDER_NAME_EXISTS",
         )
 
     provider = Provider(
         name=data.name,
+        channel_name=data.channel_name,
+        multiplier=data.multiplier,
         api_base_url=data.api_base_url,
         auth_header=data.auth_header,
         adapter=data.adapter,
@@ -175,29 +187,39 @@ async def create_provider(db: AsyncSession, data: ProviderCreate) -> Provider:
             )
         await db.flush()
 
-    logger.info("Provider '%s' created (id=%d)", provider.name, provider.id)
+    logger.info(
+        "Provider '%s/%s' created (id=%d)",
+        provider.name,
+        provider.channel_name,
+        provider.id,
+    )
     return provider
 
 
 async def update_provider(db: AsyncSession, provider_id: int, data: ProviderUpdate) -> Provider:
-    """Update editable fields of a provider."""
+    """Update editable fields of a provider.
+
+    Editable: channel_name, multiplier, api_base_url, auth_header, adapter.
+    Name is not editable (preserves stable identity for SK bindings).
+    """
     provider = await _get_provider_or_404(db, provider_id)
 
     update_data = data.model_dump(exclude_unset=True, by_alias=False)
 
-    # Check name uniqueness if renaming
-    new_name = update_data.get("name")
-    if new_name is not None and new_name != provider.name:
+    # Check (name, channel_name) uniqueness if channel_name changes
+    new_channel_name = update_data.get("channel_name")
+    if new_channel_name is not None and new_channel_name != provider.channel_name:
         existing = await db.execute(
             select(Provider).where(
-                Provider.name == new_name,
+                Provider.name == provider.name,
+                Provider.channel_name == new_channel_name,
                 Provider.id != provider_id,
             )
         )
         if existing.scalar_one_or_none():
             raise AppException(
                 status_code=409,
-                error="供应商名称已存在",
+                error="供应商 (name, channel_name) 组合已存在",
                 code="PROVIDER_NAME_EXISTS",
             )
 
@@ -215,8 +237,9 @@ async def toggle_provider_status(db: AsyncSession, provider_id: int) -> Provider
     provider.status = "inactive" if provider.status == "active" else "active"
     await db.flush()
     logger.info(
-        "Provider '%s' (id=%d) status → %s",
+        "Provider '%s/%s' (id=%d) status → %s",
         provider.name,
+        provider.channel_name,
         provider.id,
         provider.status,
     )
@@ -337,56 +360,58 @@ async def get_active_upstream_key(
     return decrypt_api_key(selected.key_encrypted, provider_id=provider_id)
 
 
-# ── ChannelConfig management (Story 4.3) ─────────────────────────────
+# ── ModelProviderRoute management ────────────────────────────────────
 
 
-def _format_channel_row(channel: ChannelConfig, model: Model, provider: Provider) -> dict:
-    """Format a ChannelConfig joined with model/provider for admin responses."""
+def _format_route_row(
+    route: ModelProviderRoute, model: Model, provider: Provider
+) -> dict:
+    """Format a ModelProviderRoute joined with model/provider for admin responses."""
     return {
-        "id": channel.id,
-        "model_id": channel.model_id,
+        "id": route.id,
+        "model_id": model.id,
         "model_name": model.public_name,
         "model_status": model.status,
-        "provider_id": channel.provider_id,
+        "provider_id": provider.id,
         "provider_name": provider.name,
+        "provider_channel_name": provider.channel_name,
+        "provider_multiplier": provider.multiplier,
         "provider_status": provider.status,
-        "name": channel.name,
-        "provider_model_id": channel.provider_model_id,
-        "multiplier": channel.multiplier,
-        "is_default": channel.is_default,
-        "status": channel.status,
-        "created_at": channel.created_at.isoformat(),
+        "provider_model": route.provider_model,
+        "is_default": route.is_default,
+        "status": route.status,
+        "created_at": route.created_at.isoformat(),
     }
 
 
-async def list_channel_configs(db: AsyncSession) -> list[dict]:
-    """Return all channel configs with model/provider display fields."""
+async def list_model_provider_routes(db: AsyncSession) -> list[dict]:
+    """Return all (model, provider) routes with model/provider display fields."""
     result = await db.execute(
-        select(ChannelConfig, Model, Provider)
-        .join(Model, ChannelConfig.model_id == Model.id)
-        .join(Provider, ChannelConfig.provider_id == Provider.id)
-        .where(ChannelConfig.status != "deleted")
-        .order_by(Model.public_name.asc(), ChannelConfig.multiplier.asc())
+        select(ModelProviderRoute, Model, Provider)
+        .join(Model, ModelProviderRoute.model_id == Model.id)
+        .join(Provider, ModelProviderRoute.provider_id == Provider.id)
+        .where(ModelProviderRoute.status != "deleted")
+        .order_by(Model.public_name.asc(), Provider.multiplier.asc())
     )
-    return [_format_channel_row(ch, model, provider) for ch, model, provider in result.all()]
+    return [_format_route_row(route, model, provider) for route, model, provider in result.all()]
 
 
-async def _get_channel_with_context_or_404(
+async def _get_route_with_context_or_404(
     db: AsyncSession,
-    channel_id: int,
-) -> tuple[ChannelConfig, Model, Provider]:
+    route_id: int,
+) -> tuple[ModelProviderRoute, Model, Provider]:
     result = await db.execute(
-        select(ChannelConfig, Model, Provider)
-        .join(Model, ChannelConfig.model_id == Model.id)
-        .join(Provider, ChannelConfig.provider_id == Provider.id)
-        .where(ChannelConfig.id == channel_id)
+        select(ModelProviderRoute, Model, Provider)
+        .join(Model, ModelProviderRoute.model_id == Model.id)
+        .join(Provider, ModelProviderRoute.provider_id == Provider.id)
+        .where(ModelProviderRoute.id == route_id)
     )
     row = result.one_or_none()
     if not row:
         raise AppException(
             status_code=404,
-            error="渠道配置不存在",
-            code="CHANNEL_NOT_FOUND",
+            error="渠道路由不存在",
+            code="ROUTE_NOT_FOUND",
         )
     return row
 
@@ -399,152 +424,127 @@ async def _get_model_or_404(db: AsyncSession, model_id: int) -> Model:
     return model
 
 
-async def _ensure_single_default(db: AsyncSession, model_id: int, channel: ChannelConfig) -> None:
-    """Make the given channel the only default channel for its model.
+async def _ensure_single_default_route(
+    db: AsyncSession, model_id: int, route: ModelProviderRoute
+) -> None:
+    """Make the given route the only default for its model.
 
     Uses SELECT ... FOR UPDATE to serialize concurrent default changes.
-    A DB-level partial unique index on (model_id) WHERE is_default = TRUE
-    is recommended for complete protection across transactions.
     """
-    # Lock all channels for this model to prevent concurrent default changes
+    # Lock all routes for this model to prevent concurrent default changes
     await db.execute(
-        select(ChannelConfig).where(ChannelConfig.model_id == model_id).with_for_update()
+        select(ModelProviderRoute)
+        .where(ModelProviderRoute.model_id == model_id)
+        .with_for_update()
     )
     await db.execute(
-        update(ChannelConfig).where(ChannelConfig.model_id == model_id).values(is_default=False)
+        update(ModelProviderRoute)
+        .where(ModelProviderRoute.model_id == model_id)
+        .values(is_default=False)
     )
-    channel.is_default = True
+    route.is_default = True
 
 
-async def create_channel_config(
+async def create_model_provider_route(
     db: AsyncSession,
     *,
     model_id: int,
     provider_id: int,
-    name: str,
-    provider_model_id: str,
-    multiplier: float,
+    provider_model: str,
     is_default: bool = False,
 ) -> dict:
-    """Create a model-provider channel config."""
-    # 1. Validate multiplier first (cheap, no DB)
-    if multiplier <= 0:
-        raise AppException(
-            status_code=400,
-            error="倍率必须大于 0",
-            code="INVALID_MULTIPLIER",
-        )
-
-    # 2. Check model and provider exist
+    """Create a (model, provider) routing entry."""
+    # 1. Validate model and provider exist
     model = await _get_model_or_404(db, model_id)
     provider = await _get_provider_or_404(db, provider_id)
 
-    # 3. Check for duplicate active channel (with lock to prevent race)
+    if provider.status != "active":
+        raise AppException(
+            status_code=400,
+            error="供应商已停用，无法创建路由",
+            code="PROVIDER_INACTIVE",
+        )
+
+    # 2. Check for duplicate active route (with lock to prevent race)
     existing = await db.execute(
-        select(ChannelConfig)
+        select(ModelProviderRoute)
         .where(
-            ChannelConfig.model_id == model_id,
-            ChannelConfig.provider_id == provider_id,
-            ChannelConfig.status == "active",
+            ModelProviderRoute.model_id == model_id,
+            ModelProviderRoute.provider_id == provider_id,
+            ModelProviderRoute.status == "active",
         )
         .with_for_update()
     )
     if existing.scalar_one_or_none():
         raise AppException(
             status_code=409,
-            error="该供应商-模型渠道已存在",
-            code="CHANNEL_ALREADY_EXISTS",
+            error="该供应商-模型路由已存在",
+            code="ROUTE_ALREADY_EXISTS",
         )
 
-    channel = ChannelConfig(
+    route = ModelProviderRoute(
         model_id=model_id,
         provider_id=provider_id,
-        name=name,
-        provider_model_id=provider_model_id,
-        multiplier=multiplier,
+        provider_model=provider_model,
         is_default=False,
         status="active",
     )
-    db.add(channel)
+    db.add(route)
     await db.flush()
 
     if is_default:
-        await _ensure_single_default(db, model_id, channel)
+        await _ensure_single_default_route(db, model_id, route)
         await db.flush()
 
-    return _format_channel_row(channel, model, provider)
+    return _format_route_row(route, model, provider)
 
 
-async def update_channel_config(
+async def update_model_provider_route(
     db: AsyncSession,
-    channel_id: int,
+    route_id: int,
     *,
-    name: str | None = None,
-    provider_model_id: str | None = None,
-    multiplier: float | None = None,
+    provider_model: str | None = None,
     is_default: bool | None = None,
 ) -> dict:
-    """Update name / provider_model_id / multiplier / default flag for a channel config."""
-    channel, model, provider = await _get_channel_with_context_or_404(db, channel_id)
+    """Update provider_model and/or default flag for a route."""
+    route, model, provider = await _get_route_with_context_or_404(db, route_id)
 
-    if name is not None:
-        channel.name = name
-
-    if provider_model_id is not None:
-        channel.provider_model_id = provider_model_id
-
-    if multiplier is not None:
-        if multiplier <= 0:
-            raise AppException(
-                status_code=400,
-                error="倍率必须大于 0",
-                code="INVALID_MULTIPLIER",
-            )
-        channel.multiplier = multiplier
+    if provider_model is not None:
+        route.provider_model = provider_model
 
     if is_default is True:
-        await _ensure_single_default(db, channel.model_id, channel)
+        await _ensure_single_default_route(db, route.model_id, route)
     elif is_default is False:
-        channel.is_default = False
+        route.is_default = False
 
     await db.flush()
-    return _format_channel_row(channel, model, provider)
+    return _format_route_row(route, model, provider)
 
 
-async def set_channel_multiplier(
-    db: AsyncSession,
-    channel_id: int,
-    multiplier: float,
-) -> dict:
-    """Compatibility helper for Story 4.3 naming."""
-    return await update_channel_config(db, channel_id, multiplier=multiplier)
-
-
-async def toggle_channel_status(db: AsyncSession, channel_id: int) -> dict:
-    """Toggle a channel status between active and inactive."""
-    channel, model, provider = await _get_channel_with_context_or_404(db, channel_id)
-    if channel.status == "active":
-        channel.status = "inactive"
-        # Clear default flag so admin view doesn't show a disabled default.
-        # Public API already handles this via _normalize_default_channels.
-        if channel.is_default:
-            channel.is_default = False
-    elif channel.status == "inactive":
-        channel.status = "active"
+async def toggle_route_status(db: AsyncSession, route_id: int) -> dict:
+    """Toggle a route's status between active and inactive."""
+    route, model, provider = await _get_route_with_context_or_404(db, route_id)
+    if route.status == "active":
+        route.status = "inactive"
+        if route.is_default:
+            route.is_default = False
+    elif route.status == "inactive":
+        route.status = "active"
     else:
         raise AppException(
             status_code=400,
-            error="无效的渠道状态",
-            code="INVALID_CHANNEL_STATUS",
+            error="无效的路由状态",
+            code="INVALID_ROUTE_STATUS",
         )
     await db.flush()
-    return _format_channel_row(channel, model, provider)
+    return _format_route_row(route, model, provider)
 
 
 async def delete_provider(db: AsyncSession, provider_id: int) -> dict:
     """Delete a provider — hard if no RequestLog references, soft otherwise.
 
-    Blocked if Model, ChannelConfig, or active ProviderKey records reference this provider.
+    Blocked if any ModelProviderRoute, ChannelKey, or active ProviderKey
+    records reference this provider.
     """
     # 1. Find provider
     provider = await _get_provider_or_404(db, provider_id)
@@ -556,12 +556,13 @@ async def delete_provider(db: AsyncSession, provider_id: int) -> dict:
     # 2. Check blocking dependents
     blocking: dict[str, int] = {}
 
-    ch_count_result = await db.execute(
-        select(func.count(ChannelConfig.id)).where(
-            ChannelConfig.provider_id == provider_id
+    route_count_result = await db.execute(
+        select(func.count(ModelProviderRoute.id)).where(
+            ModelProviderRoute.provider_id == provider_id,
+            ModelProviderRoute.status != "deleted",
         )
     )
-    blocking["channels"] = ch_count_result.scalar_one()
+    blocking["routes"] = route_count_result.scalar_one()
 
     key_count_result = await db.execute(
         select(func.count(ProviderKey.id)).where(
@@ -571,11 +572,11 @@ async def delete_provider(db: AsyncSession, provider_id: int) -> dict:
     )
     blocking["keys"] = key_count_result.scalar_one()
 
-    total_blocking = blocking["channels"] + blocking["keys"]
+    total_blocking = blocking["routes"] + blocking["keys"]
     if total_blocking > 0:
         parts = []
-        if blocking["channels"]:
-            parts.append(f"{blocking['channels']} 个渠道配置")
+        if blocking["routes"]:
+            parts.append(f"{blocking['routes']} 个路由")
         if blocking["keys"]:
             parts.append(f"{blocking['keys']} 把活跃 Key")
         raise AppException(
@@ -615,56 +616,43 @@ async def delete_provider(db: AsyncSession, provider_id: int) -> dict:
     return {"deleted": True, "method": method, "id": provider_id}
 
 
-async def delete_channel(db: AsyncSession, channel_id: int) -> dict:
-    """Delete a channel config — hard if no RequestLog references, soft otherwise.
+async def delete_model_provider_route(db: AsyncSession, route_id: int) -> dict:
+    """Delete a (model, provider) route — hard if no RequestLog references, soft otherwise.
 
-    Blocked if ChannelKey records reference this channel.
+    No blocking dependents — routes are pure routing data, not referenced by
+    any other table (RequestLog references provider_id, not route_id).
     """
-    # 1. Find channel
-    ch_result = await db.execute(
-        select(ChannelConfig).where(ChannelConfig.id == channel_id)
+    # 1. Find route
+    r = await db.execute(
+        select(ModelProviderRoute).where(ModelProviderRoute.id == route_id)
     )
-    channel = ch_result.scalar_one_or_none()
-    if not channel:
+    route = r.scalar_one_or_none()
+    if not route:
         raise AppException(
-            status_code=404, error="渠道配置不存在", code="CHANNEL_NOT_FOUND"
+            status_code=404, error="渠道路由不存在", code="ROUTE_NOT_FOUND"
         )
-    if channel.status == "deleted":
+    if route.status == "deleted":
         raise AppException(
-            status_code=404, error="渠道配置不存在", code="CHANNEL_NOT_FOUND"
+            status_code=404, error="渠道路由不存在", code="ROUTE_NOT_FOUND"
         )
 
-    # 2. Check blocking dependents: ChannelKey
-    ck_count_result = await db.execute(
-        select(func.count(ChannelKey.id)).where(
-            ChannelKey.channel_id == channel_id
-        )
-    )
-    ck_count = ck_count_result.scalar_one()
-    if ck_count > 0:
-        raise AppException(
-            status_code=409,
-            error=f"无法删除：该渠道下有 {ck_count} 个 Key 绑定，请先清理",
-            code="HAS_DEPENDENTS",
-        )
-
-    # 3. Check RequestLog to decide hard vs soft
+    # 2. Check RequestLog to decide hard vs soft (route_id column)
     rl_count_result = await db.execute(
         select(func.count(RequestLog.id)).where(
-            RequestLog.channel_id == channel_id
+            RequestLog.route_id == route_id
         )
     )
     has_request_logs = rl_count_result.scalar_one() > 0
 
     if has_request_logs:
-        channel.status = "deleted"
-        if channel.is_default:
-            channel.is_default = False
+        route.status = "deleted"
+        if route.is_default:
+            route.is_default = False
         method = "soft"
     else:
-        await db.delete(channel)
+        await db.delete(route)
         method = "hard"
 
     await db.flush()
-    logger.info("Channel id=%d %s-deleted", channel_id, method)
-    return {"deleted": True, "method": method, "id": channel_id}
+    logger.info("Route id=%d %s-deleted", route_id, method)
+    return {"deleted": True, "method": method, "id": route_id}

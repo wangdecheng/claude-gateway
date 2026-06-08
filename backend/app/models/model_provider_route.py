@@ -24,6 +24,12 @@ class ModelProviderRoute(Base):
     )
     provider_model: Mapped[str] = mapped_column(String(200), nullable=False)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20),
+        default="active",
+        nullable=False,
+        comment="active | inactive | deleted (soft-delete, preserves billing history)",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -20,8 +20,8 @@ class UsageRecord(Base):
     cache_creation_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     output_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     cost_cents: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # 单位: 分
-    channel_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("channel_configs.id"), nullable=True, index=True
+    route_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("model_providers.id"), nullable=True, index=True
     )
     # Upstream Anthropic message.id from message_start event (e.g. "msg_01ABCxyz...").
     # Lets call records in this table be cross-referenced with Claude Code

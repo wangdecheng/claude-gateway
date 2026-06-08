@@ -1,7 +1,8 @@
 from app.models.api_key import ApiKey
 from app.models.billing_record import BillingRecord
 from app.models.channel_key import ChannelKey  # noqa: F401
-from app.models.model import ChannelConfig, Model
+from app.models.model import Model
+from app.models.model_provider_route import ModelProviderRoute
 from app.models.payment_record import PaymentRecord
 from app.models.pending_billing import PendingBilling  # noqa: F401
 from app.models.provider import Provider, ProviderKey
@@ -17,7 +18,7 @@ __all__ = [
     "Provider",
     "ProviderKey",
     "Model",
-    "ChannelConfig",
+    "ModelProviderRoute",
     "RedemptionCode",
     "RedemptionUsage",
     "PaymentRecord",

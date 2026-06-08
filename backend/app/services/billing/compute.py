@@ -38,12 +38,17 @@ async def compute_costs_for_pending(
     pending: "PendingBilling",  # noqa: F821 — forward ref
     db: AsyncSession,
 ) -> int:
-    """Load channel multiplier and model prices, then call compute_cost."""
-    from app.models.model import ChannelConfig, Model
+    """Load provider multiplier and model prices, then call compute_cost."""
+    from app.models.model import Model
+    from app.models.model_provider_route import ModelProviderRoute
+    from app.models.provider import Provider
 
-    channel = await db.scalar(
-        select(ChannelConfig).where(ChannelConfig.id == pending.channel_id)
+    route = await db.scalar(
+        select(ModelProviderRoute).where(ModelProviderRoute.id == pending.route_id)
     )
+    if route is None:
+        raise RuntimeError(f"ModelProviderRoute {pending.route_id} not found for billing")
+    provider = await db.scalar(select(Provider).where(Provider.id == route.provider_id))
     model = await db.scalar(select(Model).where(Model.id == pending.model_id))
     return compute_cost(
         input_tokens=pending.input_tokens,
@@ -52,5 +57,5 @@ async def compute_costs_for_pending(
         cache_creation_tokens=pending.cache_creation_tokens,
         input_price_micro_yuan=model.input_price,
         output_price_micro_yuan=model.output_price,
-        channel_multiplier=channel.multiplier,
+        channel_multiplier=provider.multiplier,
     )

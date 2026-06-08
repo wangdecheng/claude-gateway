@@ -18,7 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.database import Base
 from app.models.api_key import ApiKey
 from app.models.billing_record import BillingRecord
-from app.models.model import ChannelConfig, Model
+from app.models.model import Model
+from app.models.model_provider_route import ModelProviderRoute
 from app.models.pending_billing import PendingBilling
 from app.models.provider import Provider
 from app.models.request_log import RequestLog
@@ -28,7 +29,7 @@ from app.models.user import User
 
 @pytest.fixture
 async def seeded_db():
-    """Yield (session, refs) for an in-memory DB with user, model, channel seeded."""
+    """Yield (session, refs) for an in-memory DB with user, model, route seeded."""
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -60,13 +61,11 @@ async def seeded_db():
             cache_read_price=0,
             status="active",
         )
-        channel = ChannelConfig(
+        route = ModelProviderRoute(
             id=1,
             model_id=1,
             provider_id=1,
-            name="default",
-            provider_model_id="m",
-            multiplier=1.0,
+            provider_model="m",
             is_default=True,
             status="active",
         )
@@ -78,13 +77,13 @@ async def seeded_db():
             key_hash="h",
             status="active",
         )
-        session.add_all([user, provider, model, channel, api_key])
+        session.add_all([user, provider, model, route, api_key])
         await session.commit()
         refs = {
             "user_id": 1,
             "api_key_id": 1,
             "model_id": 1,
-            "channel_id": 1,
+            "route_id": 1,
             "provider_id": 1,
         }
         yield session, refs
@@ -105,7 +104,7 @@ async def test_settle_one_deducts_balance_and_writes_three_tables(seeded_db):
         user_id=refs["user_id"],
         api_key_id=refs["api_key_id"],
         model_id=refs["model_id"],
-        channel_id=refs["channel_id"],
+        route_id=refs["route_id"],
         provider_id=refs["provider_id"],
         input_tokens=1000,
         output_tokens=1000,
@@ -133,7 +132,7 @@ async def test_settle_one_deducts_balance_and_writes_three_tables(seeded_db):
     rl = rl_result.scalar_one()
     assert rl.user_id == 1
     assert rl.cost_cents == 9
-    assert rl.channel_id == 1
+    assert rl.route_id == 1
     assert rl.status == "success"
 
     # billing_records (1:1 with request_log)
@@ -148,7 +147,7 @@ async def test_settle_one_deducts_balance_and_writes_three_tables(seeded_db):
     ur_result = await session.execute(select(UsageRecord).where(UsageRecord.user_id == 1))
     ur = ur_result.scalar_one()
     assert ur.cost_cents == 9
-    assert ur.channel_id == 1
+    assert ur.route_id == 1
     assert ur.input_tokens == 1000
 
 
@@ -165,7 +164,7 @@ async def test_settle_one_increments_retry_on_failure(seeded_db):
         user_id=refs["user_id"],
         api_key_id=refs["api_key_id"],
         model_id=refs["model_id"],
-        channel_id=refs["channel_id"],
+        route_id=refs["route_id"],
         provider_id=refs["provider_id"],
         input_tokens=1000,
         output_tokens=1000,
@@ -174,8 +173,8 @@ async def test_settle_one_increments_retry_on_failure(seeded_db):
     )
     await session.commit()
 
-    # Force a failure by deleting the channel row
-    ch = await session.get(ChannelConfig, 1)
+    # Force a failure by deleting the route row
+    ch = await session.get(ModelProviderRoute, 1)
     await session.delete(ch)
     await session.commit()
 

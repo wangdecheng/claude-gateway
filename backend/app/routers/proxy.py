@@ -180,7 +180,7 @@ async def create_message(
 
     # ── 4. Get upstream API key from key pool ─────────────────
     upstream_api_key = await _get_active_upstream_key(
-        db, provider.id, channel_id=routed.db_channel_id
+        db, provider.id, channel_id=provider.id
     )
     if not upstream_api_key:
         raise AppException(status_code=500, error="上游服务配置错误", code="UPSTREAM_CONFIG_ERROR")
@@ -279,7 +279,7 @@ async def create_message(
                     user_id=user_id,
                     api_key_id=api_key_id,
                     model_id=model.id,
-                    channel_id=routed.db_channel_id,
+                    route_id=routed.db_route_id,
                     provider_id=provider.id,
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,

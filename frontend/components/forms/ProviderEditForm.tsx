@@ -34,6 +34,8 @@ interface ProviderEditFormProps {
 
 interface FormValues {
   name: string;
+  channelName: string;
+  multiplier: number;
   apiBaseUrl: string;
   authHeader: string;
   adapter: string;
@@ -60,6 +62,8 @@ export function ProviderEditForm({
   } = useForm<FormValues>({
     defaultValues: {
       name: "",
+      channelName: "",
+      multiplier: 1.0,
       apiBaseUrl: "",
       authHeader: "Authorization",
       adapter: "openai-chat-completions",
@@ -74,6 +78,8 @@ export function ProviderEditForm({
       if (provider) {
         reset({
           name: provider.name,
+          channelName: provider.channelName,
+          multiplier: provider.multiplier,
           apiBaseUrl: provider.apiBaseUrl,
           authHeader: provider.authHeader,
           adapter: provider.adapter,
@@ -82,6 +88,8 @@ export function ProviderEditForm({
       } else {
         reset({
           name: "",
+          channelName: "",
+          multiplier: 1.0,
           apiBaseUrl: "",
           authHeader: "Authorization",
           adapter: "openai-chat-completions",
@@ -98,8 +106,10 @@ export function ProviderEditForm({
       .filter(Boolean);
 
     if (isEdit) {
+      // Name is intentionally not editable (preserves SK bindings)
       const data: ProviderUpdateInput = {
-        name: values.name,
+        channelName: values.channelName,
+        multiplier: Number(values.multiplier),
         apiBaseUrl: values.apiBaseUrl,
         authHeader: values.authHeader,
         adapter: values.adapter,
@@ -108,6 +118,8 @@ export function ProviderEditForm({
     } else {
       const data: ProviderCreateInput = {
         name: values.name,
+        channelName: values.channelName,
+        multiplier: Number(values.multiplier),
         apiBaseUrl: values.apiBaseUrl,
         authHeader: values.authHeader,
         adapter: values.adapter,
@@ -124,24 +136,64 @@ export function ProviderEditForm({
           <DialogTitle>{isEdit ? "编辑供应商" : "添加供应商"}</DialogTitle>
           <DialogDescription>
             {isEdit
-              ? "修改供应商的基本信息和认证配置。"
-              : "添加一个新的上游 AI 供应商。"}
+              ? "修改供应商的渠道名、倍率、API URL 与认证配置。"
+              : "添加一个新的上游 AI 供应商。每个 (供应商名, 渠道名) 组合必须唯一。"}
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit(onFormSubmit)} className="space-y-4">
-          {/* Name */}
-          <div className="space-y-2">
-            <Label htmlFor="name">供应商名称 *</Label>
-            <Input
-              id="name"
-              placeholder="如 Anthropic、DeepSeek"
-              {...register("name", { required: "请输入供应商名称" })}
-            />
-            {errors.name && (
-              <p className="text-sm text-red-500">{errors.name.message}</p>
-            )}
+          {/* Name — create mode only (editable name would break SK bindings) */}
+          {!isEdit && (
+            <div className="space-y-2">
+              <Label htmlFor="name">供应商名称 *</Label>
+              <Input
+                id="name"
+                placeholder="如 Anthropic、DeepSeek"
+                {...register("name", { required: "请输入供应商名称" })}
+              />
+              {errors.name && (
+                <p className="text-sm text-red-500">{errors.name.message}</p>
+              )}
+            </div>
+          )}
+
+          {/* Channel name + Multiplier */}
+          <div className="grid grid-cols-[1fr_120px] gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="channelName">渠道名 *</Label>
+              <Input
+                id="channelName"
+                placeholder="如 主力线路 / awsq"
+                {...register("channelName", {
+                  required: "请输入渠道名",
+                  minLength: { value: 1, message: "渠道名不能为空" },
+                })}
+              />
+              {errors.channelName && (
+                <p className="text-sm text-red-500">{errors.channelName.message}</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="multiplier">倍率 *</Label>
+              <Input
+                id="multiplier"
+                type="number"
+                step="0.1"
+                min="0.01"
+                {...register("multiplier", {
+                  required: "请输入倍率",
+                  valueAsNumber: true,
+                  validate: (v) => (v > 0 ? true : "倍率必须大于 0"),
+                })}
+              />
+              {errors.multiplier && (
+                <p className="text-sm text-red-500">{errors.multiplier.message}</p>
+              )}
+            </div>
           </div>
+          <p className="text-xs text-neutral-text-secondary">
+            渠道名 + 倍率构成"渠道"。最终费用 = 模型基础价 × 渠道倍率。
+          </p>
 
           {/* API Base URL */}
           <div className="space-y-2">

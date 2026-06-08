@@ -79,11 +79,13 @@ async def _setup_test_data(client: AsyncClient) -> dict:
 
     Returns dict with {provider_id, model_id, channel_id}.
     """
-    # Create provider
+    # Create provider (channel_name + multiplier now required)
     resp = await client.post(
         "/api/admin/providers",
         json={
             "name": "Test Provider Delete",
+            "channelName": "测试渠道",
+            "multiplier": 1.0,
             "apiBaseUrl": "https://test.example.com/v1",
             "adapter": "openai-chat-completions",
             "keys": ["sk-test-key-12345678"],
@@ -104,15 +106,13 @@ async def _setup_test_data(client: AsyncClient) -> dict:
     assert resp.status_code == 201, f"Model create failed: {resp.text}"
     model_id = resp.json()["id"]
 
-    # Create channel separately (with provider_model_id)
+    # Create channel/route (now only providerModel + isDefault — no name/multiplier)
     resp = await client.post(
         "/api/admin/channels",
         json={
             "modelId": model_id,
             "providerId": provider_id,
-            "name": "测试渠道",
-            "providerModelId": "test-model-delete",
-            "multiplier": 1.0,
+            "providerModel": "test-model-delete",
             "isDefault": True,
         },
     )

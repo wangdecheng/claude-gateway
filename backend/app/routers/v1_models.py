@@ -7,7 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.dependencies import get_db
 from app.dependencies import get_current_user_from_api_key
 from app.models.api_key import ApiKey
-from app.models.model import ChannelConfig, Model
+from app.models.model import Model
+from app.models.model_provider_route import ModelProviderRoute
 from app.models.provider import Provider
 from app.models.user import User
 from app.schemas.common import ErrorResponse
@@ -47,27 +48,25 @@ def _to_display_name(public_name: str) -> str:
 
 
 async def _get_active_models(db: AsyncSession) -> list[ModelData]:
-    """Return all active models that have at least one valid channel config.
+    """Return all active models that have at least one valid route.
 
     A model is considered 'available' when:
       1. models.status = 'active'
-      2. Has ≥1 channel_config with status='active', multiplier > 0
-      3. That channel_config's provider has status='active'
+      2. Has ≥1 model_providers (route) with status='active'
+      3. That route's provider has status='active' and multiplier > 0
 
     Models whose provider is inactive are still included but marked with
     provider_status='inactive' so clients can display a "已停用" indicator.
     """
-    # Get models with valid channels (DISTINCT to avoid duplicates from multiple channels).
-    # Includes models from inactive providers with provider_status marker per AC-5.
     result = await db.execute(
         select(Model, Provider.status.label("provider_status"))
         .distinct()
-        .join(ChannelConfig, ChannelConfig.model_id == Model.id)
-        .join(Provider, Provider.id == ChannelConfig.provider_id)
+        .join(ModelProviderRoute, ModelProviderRoute.model_id == Model.id)
+        .join(Provider, Provider.id == ModelProviderRoute.provider_id)
         .where(
             Model.status == "active",
-            ChannelConfig.status == "active",
-            ChannelConfig.multiplier > 0,
+            ModelProviderRoute.status == "active",
+            Provider.multiplier > 0,
         )
         .order_by(Model.public_name)
     )
@@ -100,7 +99,7 @@ async def list_models(
 ):
     """GET /v1/models — Anthropic-compatible model discovery.
 
-    Returns all active models with valid channel configurations.
+    Returns all active models with valid route configurations.
     Authenticated via Bearer sk header.
 
     Response format matches Anthropic's Models List API:

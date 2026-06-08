@@ -1,9 +1,14 @@
-"""Admin channel multiplier configuration router."""
+"""Admin (model ↔ provider) route management router.
+
+The endpoint is still named /api/admin/channels for backward compatibility
+with the frontend, but the underlying entity is now a ModelProviderRoute
+(model binding to a provider, with a provider_model string and is_default flag).
+Channel name and multiplier are managed via /api/admin/providers.
+"""
 
 import logging
 
 from fastapi import APIRouter, Depends
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_db
@@ -32,10 +37,10 @@ def _format_channel(result: dict) -> dict:
         "modelStatus": result["model_status"],
         "providerId": result["provider_id"],
         "providerName": result["provider_name"],
+        "providerChannelName": result["provider_channel_name"],
+        "providerMultiplier": result["provider_multiplier"],
         "providerStatus": result["provider_status"],
-        "name": result["name"],
-        "providerModelId": result["provider_model_id"],
-        "multiplier": result["multiplier"],
+        "providerModel": result["provider_model"],
         "isDefault": result["is_default"],
         "status": result["status"],
         "createdAt": result["created_at"],
@@ -47,9 +52,9 @@ async def list_channels(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all channel configurations for admin management."""
-    channels = await provider_service.list_channel_configs(db)
-    return [_format_channel(ch) for ch in channels]
+    """List all (model ↔ provider) routes for admin management."""
+    routes = await provider_service.list_model_provider_routes(db)
+    return [_format_channel(r) for r in routes]
 
 
 @router.post("", response_model=AdminChannelResponse, status_code=201)
@@ -58,30 +63,23 @@ async def create_channel(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a new model-provider channel configuration."""
+    """Create a new (model, provider) route."""
     try:
-        result = await provider_service.create_channel_config(
+        result = await provider_service.create_model_provider_route(
             db,
             model_id=data.model_id,
             provider_id=data.provider_id,
-            name=data.name,
-            provider_model_id=data.provider_model_id,
-            multiplier=data.multiplier,
+            provider_model=data.provider_model,
             is_default=data.is_default,
         )
         await db.commit()
-    except IntegrityError:
+    except AppException:
         await db.rollback()
-        logger.warning(
-            "IntegrityError creating channel model=%d provider=%d",
-            data.model_id,
-            data.provider_id,
-        )
-        raise AppException(
-            status_code=409,
-            error="该供应商-模型渠道已存在",
-            code="CHANNEL_ALREADY_EXISTS",
-        )
+        raise
+    except Exception as exc:
+        await db.rollback()
+        logger.exception("create_channel failed: %s", exc)
+        raise
     return _format_channel(result)
 
 
@@ -92,13 +90,11 @@ async def update_channel(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Update channel name, provider_model_id, multiplier and/or default flag."""
-    result = await provider_service.update_channel_config(
+    """Update provider_model and/or default flag for a route."""
+    result = await provider_service.update_model_provider_route(
         db,
         channel_id,
-        name=data.name,
-        provider_model_id=data.provider_model_id,
-        multiplier=data.multiplier,
+        provider_model=data.provider_model,
         is_default=data.is_default,
     )
     await db.commit()
@@ -111,10 +107,11 @@ async def toggle_channel_status(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Toggle channel status active/inactive."""
-    result = await provider_service.toggle_channel_status(db, channel_id)
+    """Toggle route status active/inactive."""
+    result = await provider_service.toggle_route_status(db, channel_id)
     await db.commit()
     return _format_channel(result)
+
 
 @router.delete("/{channel_id}", response_model=DeleteResponse)
 async def delete_channel(
@@ -122,7 +119,7 @@ async def delete_channel(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Delete a channel config — hard if no request logs, soft otherwise."""
-    result = await provider_service.delete_channel(db, channel_id)
+    """Delete a (model, provider) route — hard if no RequestLog references, soft otherwise."""
+    result = await provider_service.delete_model_provider_route(db, channel_id)
     await db.commit()
     return result
