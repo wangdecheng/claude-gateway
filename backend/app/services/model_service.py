@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions import AppException
 from app.models.model import ChannelConfig, Model
+from app.models.model_provider_route import ModelProviderRoute
 from app.models.provider import Provider
 from app.models.request_log import RequestLog
 
@@ -37,7 +38,7 @@ def _normalize_default_channels(channels: list[dict]) -> list[dict]:
 async def list_active_models(db: AsyncSession) -> list[dict]:
     """Return all active models with their channel configurations.
 
-    Each model includes a list of channels (provider_name, multiplier, is_default).
+    Each model includes a list of channels (channel_name, multiplier, is_default).
     Models with status != 'active' are excluded.
     """
     model_result = await db.execute(
@@ -50,27 +51,25 @@ async def list_active_models(db: AsyncSession) -> list[dict]:
 
     model_ids = [m.id for m in models]
     channel_result = await db.execute(
-        select(ChannelConfig, Provider.name)
-        .join(Provider, ChannelConfig.provider_id == Provider.id)
+        select(ModelProviderRoute, Provider)
+        .join(Provider, Provider.id == ModelProviderRoute.provider_id)
         .where(
-            ChannelConfig.model_id.in_(model_ids),
-            ChannelConfig.status == "active",
+            ModelProviderRoute.model_id.in_(model_ids),
             Provider.status == "active",
-            ChannelConfig.multiplier > 0,
+            Provider.multiplier > 0,
         )
     )
     channel_rows = channel_result.all()
 
     channels_by_model: dict[int, list[dict]] = {}
-    for ch_config, provider_name in channel_rows:
-        channels_by_model.setdefault(ch_config.model_id, []).append(
+    for route, prov in channel_rows:
+        channels_by_model.setdefault(route.model_id, []).append(
             {
-                "id": ch_config.id,
-                "model_id": ch_config.model_id,
-                "provider_name": provider_name,
-                "channel_name": ch_config.name,
-                "multiplier": ch_config.multiplier,
-                "is_default": ch_config.is_default,
+                "id": prov.id,
+                "model_id": route.model_id,
+                "channel_name": prov.channel_name,
+                "multiplier": prov.multiplier,
+                "is_default": route.is_default,
             }
         )
 
@@ -95,7 +94,6 @@ async def list_active_models(db: AsyncSession) -> list[dict]:
                 "channels": [
                     {
                         "id": channel["id"],
-                        "provider_name": channel["provider_name"],
                         "channel_name": channel["channel_name"],
                         "multiplier": channel["multiplier"],
                         "is_default": channel["is_default"],
@@ -116,26 +114,24 @@ async def get_model_detail(db: AsyncSession, model_id: int) -> dict:
         raise AppException(status_code=404, error="模型不存在", code="MODEL_NOT_FOUND")
 
     channel_result = await db.execute(
-        select(ChannelConfig, Provider.name)
-        .join(Provider, ChannelConfig.provider_id == Provider.id)
+        select(ModelProviderRoute, Provider)
+        .join(Provider, Provider.id == ModelProviderRoute.provider_id)
         .where(
-            ChannelConfig.model_id == model.id,
-            ChannelConfig.status == "active",
+            ModelProviderRoute.model_id == model.id,
             Provider.status == "active",
-            ChannelConfig.multiplier > 0,
+            Provider.multiplier > 0,
         )
     )
     channel_rows = channel_result.all()
 
     channels = []
-    for ch_config, ch_provider_name in channel_rows:
+    for route, prov in channel_rows:
         channels.append(
             {
-                "id": ch_config.id,
-                "provider_name": ch_provider_name,
-                "channel_name": ch_config.name,
-                "multiplier": ch_config.multiplier,
-                "is_default": ch_config.is_default,
+                "id": prov.id,
+                "channel_name": prov.channel_name,
+                "multiplier": prov.multiplier,
+                "is_default": route.is_default,
             }
         )
     channels = _normalize_default_channels(channels)

@@ -30,7 +30,6 @@ async def list_models(
             "channels": [
                 {
                     "id": ch["id"],
-                    "providerName": ch["provider_name"],
                     "channelName": ch["channel_name"],
                     "multiplier": ch["multiplier"],
                     "isDefault": ch["is_default"],
@@ -56,8 +55,6 @@ async def model_detail(
     return {
         "id": detail["id"],
         "publicName": detail["public_name"],
-        "providerName": detail["provider_name"],
-        "providerModelId": detail["provider_model_id"],
         "description": detail.get("description"),
         "inputPrice": detail["input_price"],
         "outputPrice": detail["output_price"],
@@ -65,7 +62,6 @@ async def model_detail(
         "channels": [
             {
                 "id": ch["id"],
-                "providerName": ch["provider_name"],
                 "channelName": ch["channel_name"],
                 "multiplier": ch["multiplier"],
                 "isDefault": ch["is_default"],
