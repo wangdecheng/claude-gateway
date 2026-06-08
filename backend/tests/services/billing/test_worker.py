@@ -32,7 +32,7 @@ async def session_factory():
     async with factory() as session:
         session.add_all([
             User(id=1, email="t@e.com", password_hash="x", balance=10000, role="user", status="active"),
-            Provider(id=1, name="p", api_base_url="http://x", auth_header="Authorization", adapter="openai-chat-completions", status="active"),
+            Provider(id=1, name="p", channel_name="p", api_base_url="http://x", auth_header="Authorization", adapter="openai-chat-completions", status="active"),
             Model(id=1, public_name="m", input_price=15000, output_price=75000, cache_read_price=0, status="active"),
             ChannelConfig(id=1, model_id=1, provider_id=1, name="default", provider_model_id="m", multiplier=1.0, is_default=True, status="active"),
             ApiKey(id=1, user_id=1, name="k", key_prefix="sk-abc", key_hash="h", status="active"),

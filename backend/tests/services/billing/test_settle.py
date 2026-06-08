@@ -46,6 +46,7 @@ async def seeded_db():
         provider = Provider(
             id=1,
             name="p",
+            channel_name="p",
             api_base_url="http://x",
             auth_header="Authorization",
             adapter="openai-chat-completions",

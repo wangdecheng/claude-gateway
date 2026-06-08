@@ -16,7 +16,8 @@ from starlette.responses import StreamingResponse
 from api.models.anthropic import MessagesRequest
 from app.database import Base
 from app.models.api_key import ApiKey
-from app.models.model import ChannelConfig, Model
+from app.models.model import Model
+from app.models.model_provider_route import ModelProviderRoute
 from app.models.provider import Provider, ProviderKey
 from app.models.user import User
 from app.routers.proxy import create_message as proxy_create_message
@@ -92,19 +93,18 @@ async def setup_db():
         )
         provider = Provider(
             name="DeepSeek",
+            channel_name="default",
+            multiplier=1.0,
             api_base_url="https://api.deepseek.com/anthropic",
             status="active",
         )
         db.add_all([model, provider])
         await db.flush()
 
-        channel = ChannelConfig(
+        channel = ModelProviderRoute(
             model_id=model.id,
             provider_id=provider.id,
-            name="default",
-            provider_model_id="deepseek/deepseekV4-pro",
-            multiplier=1.0,
-            status="active",
+            provider_model="deepseek/deepseekV4-pro",
             is_default=True,
         )
         db.add(channel)

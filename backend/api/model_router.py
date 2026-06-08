@@ -89,7 +89,8 @@ class ModelRouter:
         from sqlalchemy import select
 
         # Import models lazily to avoid circular imports
-        from app.models.model import ChannelConfig, Model
+        from app.models.model import Model
+        from app.models.model_provider_route import ModelProviderRoute
         from app.models.provider import Provider
 
         # 1. Look up model by public_name
@@ -102,50 +103,46 @@ class ModelRouter:
             # Fall back to settings-based resolution
             return self.resolve(model_name)
 
-        # 2. Look up default channel (or lowest-multiplier fallback)
+        # 2. Look up default route (or lowest-multiplier fallback)
         result = await self._db.execute(
-            select(ChannelConfig).where(
-                ChannelConfig.model_id == model.id,
-                ChannelConfig.status == "active",
-                ChannelConfig.is_default == True,
-            )
-        )
-        channel = result.scalar_one_or_none()
-
-        if channel is None:
-            # Fallback: lowest multiplier active channel
-            result = await self._db.execute(
-                select(ChannelConfig).where(
-                    ChannelConfig.model_id == model.id,
-                    ChannelConfig.status == "active",
-                ).order_by(ChannelConfig.multiplier.asc()).limit(1)
-            )
-            channel = result.scalar_one_or_none()
-
-        if channel is None:
-            return self.resolve(model_name)
-
-        # 3. Look up provider
-        result = await self._db.execute(
-            select(Provider).where(
-                Provider.id == channel.provider_id,
+            select(ModelProviderRoute, Provider)
+            .join(Provider, Provider.id == ModelProviderRoute.provider_id)
+            .where(
+                ModelProviderRoute.model_id == model.id,
                 Provider.status == "active",
+                ModelProviderRoute.is_default == True,
             )
         )
-        provider = result.scalar_one_or_none()
+        row = result.first()
 
-        if provider is None:
+        if row is None:
+            # Fallback: lowest multiplier active provider for this model
+            result = await self._db.execute(
+                select(ModelProviderRoute, Provider)
+                .join(Provider, Provider.id == ModelProviderRoute.provider_id)
+                .where(
+                    ModelProviderRoute.model_id == model.id,
+                    Provider.status == "active",
+                )
+                .order_by(Provider.multiplier.asc())
+                .limit(1)
+            )
+            row = result.first()
+
+        if row is None:
             return self.resolve(model_name)
+
+        route, provider = row
 
         return ResolvedModel(
             original_model=model_name,
             provider_id=_canonical_provider_id(provider.name),
-            provider_model=channel.provider_model_id,
-            provider_model_ref=f"{_canonical_provider_id(provider.name)}/{channel.provider_model_id}",
+            provider_model=route.provider_model,
+            provider_model_ref=f"{_canonical_provider_id(provider.name)}/{route.provider_model}",
             thinking_enabled=self._settings.enable_model_thinking,
             db_model_id=model.id,
             db_provider_id=provider.id,
-            db_channel_id=channel.id,
+            db_channel_id=provider.id,
         )
 
     def _direct_provider_model(self, model_name: str) -> tuple[str | None, str | None, bool | None]:

@@ -122,7 +122,7 @@ async def _get_active_upstream_key(
             select(ProviderKey)
             .join(ChannelKey, ChannelKey.provider_key_id == ProviderKey.id)
             .where(
-                ChannelKey.channel_id == channel_id,
+                ChannelKey.provider_id == channel_id,
                 ProviderKey.provider_id == provider_id,
                 ProviderKey.status == "active",
             )
@@ -156,12 +156,14 @@ async def create_message(
 
     # ── 1. Resolve model from DB ──────────────────────────────
     router_ = ModelRouter(settings, db=db)
-    routed = await router_.resolve_from_db(body.model)
-
-    if routed.db_model_id is None:
-        raise AppException(
-            status_code=400, error=f"不支持的模型: {body.model}", code="UNSUPPORTED_MODEL"
-        )
+    if api_key.channel_id is not None:
+        routed = await router_.resolve_with_channel(body.model, api_key.channel_id)
+    else:
+        routed = await router_.resolve_from_db(body.model)
+        if routed.db_model_id is None:
+            raise AppException(
+                status_code=400, error=f"不支持的模型: {body.model}", code="UNSUPPORTED_MODEL"
+            )
 
     # ── 2. Get model for pricing ──────────────────────────────
     model = await _lookup_model(db, body.model)
