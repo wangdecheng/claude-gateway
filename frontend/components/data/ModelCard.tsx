@@ -28,7 +28,7 @@ function ChannelSelect({
     >
       {channels.map((ch) => (
         <option key={ch.id} value={ch.id}>
-          {ch.channelName || ch.providerName}{" "}
+          {ch.channelName}{" "}
           {ch.isDefault ? `(默认 ×${ch.multiplier})` : `(×${ch.multiplier})`}
         </option>
       ))}

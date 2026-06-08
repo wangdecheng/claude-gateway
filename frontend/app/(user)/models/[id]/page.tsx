@@ -53,12 +53,6 @@ export default function ModelDetailPage() {
           ← 返回模型列表
         </Button>
         <h1 className="font-mono text-2xl font-bold">{model.publicName}</h1>
-        <div className="mt-2 flex items-center gap-3">
-          <Badge variant="muted">{model.providerName}</Badge>
-          <span className="text-xs text-neutral-text-muted">
-            上游 ID: {model.providerModelId}
-          </span>
-        </div>
       </div>
 
       {/* Description */}
@@ -100,7 +94,7 @@ export default function ModelDetailPage() {
                     >
                       <td className="py-2">
                         <span className="text-neutral-text-primary">
-                          {ch.providerName}
+                          {ch.channelName}
                         </span>
                         {ch.isDefault && (
                           <Badge variant="success" className="ml-2">

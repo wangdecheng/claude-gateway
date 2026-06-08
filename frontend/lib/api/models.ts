@@ -5,7 +5,6 @@ import { apiClient, ApiClientError } from "./client";
 
 export interface ChannelInfo {
   id: number;
-  providerName: string;
   channelName: string;
   multiplier: number;
   isDefault: boolean;
@@ -23,8 +22,6 @@ export interface ModelWithChannels {
 export interface ModelDetail {
   id: number;
   publicName: string;
-  providerName: string;
-  providerModelId: string;
   description: string | null;
   inputPrice: number;
   outputPrice: number;
