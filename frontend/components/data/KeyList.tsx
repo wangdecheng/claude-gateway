@@ -35,6 +35,18 @@ function KeyRow({
             创建于 {formatDate(apiKey.createdAt)}
             {apiKey.lastUsedAt && ` · 最后使用 ${formatDate(apiKey.lastUsedAt)}`}
           </p>
+          <p className="text-xs text-neutral-text-muted mt-0.5">
+            {apiKey.channelName ? (
+              <>
+                绑定渠道:{" "}
+                <span className="font-mono text-neutral-text-primary">
+                  {apiKey.channelName}
+                </span>
+              </>
+            ) : (
+              <>自动（按模型默认）</>
+            )}
+          </p>
         </div>
       </div>
       <Button
