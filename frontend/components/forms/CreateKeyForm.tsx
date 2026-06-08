@@ -10,16 +10,22 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useCreateKey } from "@/lib/api/keys";
+import { useActiveChannels } from "@/lib/api/channels";
 import { ApiClientError } from "@/lib/api/client";
 
 const schema = z.object({
   name: z.string().min(1, "请输入密钥名称").max(100, "名称最多100个字符"),
+  channelId: z
+    .number({ invalid_type_error: "请选择渠道" })
+    .int()
+    .positive("请选择渠道"),
 });
 
 type FormData = z.infer<typeof schema>;
 
 export function CreateKeyForm() {
   const mutation = useCreateKey();
+  const { data: channels, isLoading: channelsLoading } = useActiveChannels();
   const [rawKey, setRawKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -29,11 +35,17 @@ export function CreateKeyForm() {
     formState: { errors },
     setError,
     reset,
-  } = useForm<FormData>({ resolver: zodResolver(schema) });
+  } = useForm<FormData>({
+    resolver: zodResolver(schema),
+    defaultValues: { channelId: 0 },
+  });
 
   const onSubmit = async (data: FormData) => {
     try {
-      const result = await mutation.mutateAsync({ name: data.name });
+      const result = await mutation.mutateAsync({
+        name: data.name,
+        channelId: data.channelId,
+      });
       setRawKey(result.rawKey);
       reset();
     } catch (err) {
@@ -105,11 +117,39 @@ export function CreateKeyForm() {
             )}
           </div>
 
+          <div className="space-y-1.5">
+            <Label htmlFor="channelId">使用渠道</Label>
+            <select
+              id="channelId"
+              disabled={channelsLoading}
+              className="w-full rounded-md border border-neutral-border bg-neutral-surface px-3 py-2 text-sm text-neutral-text-primary focus:outline-none focus:ring-2 focus:ring-primary-subtle"
+              {...register("channelId", { valueAsNumber: true })}
+            >
+              <option value={0} disabled>
+                {channelsLoading ? "加载中..." : "请选择渠道"}
+              </option>
+              {channels?.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.channelName} ({c.multiplier}x)
+                </option>
+              ))}
+            </select>
+            {errors.channelId && (
+              <p className="text-sm text-[#dc2626]">{errors.channelId.message}</p>
+            )}
+          </div>
+
           {errors.root && (
             <p className="text-sm text-[#dc2626]">{errors.root.message}</p>
           )}
 
-          <Button type="submit" variant="primary" size="md" className="w-full" disabled={mutation.isPending}>
+          <Button
+            type="submit"
+            variant="primary"
+            size="md"
+            className="w-full"
+            disabled={mutation.isPending || channelsLoading}
+          >
             {mutation.isPending ? "创建中..." : "创建 sk"}
           </Button>
         </form>
