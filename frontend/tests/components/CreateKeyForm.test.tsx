@@ -51,20 +51,33 @@ describe("CreateKeyForm", () => {
 
   it("shows raw key on successful creation", async () => {
     const user = userEvent.setup();
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        id: 1,
-        name: "my-key",
-        keyPrefix: "sk-abc123de",
-        rawKey: "sk-abc123def456...",
-        status: "active",
-        createdAt: "2026-05-31T00:00:00Z",
-      }),
-    });
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [
+          { id: 7, channelName: "awsq", multiplier: 0.3, isDefault: false },
+        ],
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 1,
+          name: "my-key",
+          keyPrefix: "sk-abc123de",
+          rawKey: "sk-abc123def456...",
+          status: "active",
+          channelId: 7,
+          channelName: "awsq",
+          createdAt: "2026-05-31T00:00:00Z",
+        }),
+      });
 
     renderWithProviders();
 
+    await waitFor(() => {
+      expect(screen.getByRole("option", { name: /awsq/ })).toBeInTheDocument();
+    });
+    await user.selectOptions(screen.getByLabelText("使用渠道"), "7");
     await user.type(screen.getByLabelText("密钥名称"), "my-key");
     await user.click(screen.getByRole("button", { name: "创建 sk" }));
 
