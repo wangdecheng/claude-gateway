@@ -1,6 +1,15 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -8,9 +17,23 @@ from app.database import Base
 
 class Provider(Base):
     __tablename__ = "providers"
+    __table_args__ = (
+        UniqueConstraint("name", "channel_name", name="uq_providers_name_channel_name"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    channel_name: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        comment="Display name for this provider within its channel grouping",
+    )
+    multiplier: Mapped[float] = mapped_column(
+        Float,
+        default=1.0,
+        nullable=False,
+        comment="Pricing multiplier applied when billing through this provider",
+    )
     api_base_url: Mapped[str] = mapped_column(String(500), nullable=False)
     # Upstream auth configuration
     auth_header: Mapped[str] = mapped_column(
