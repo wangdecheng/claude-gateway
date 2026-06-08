@@ -8,12 +8,19 @@ export interface KeyResponse {
   name: string;
   keyPrefix: string;
   status: string;
+  channelId: number | null;
+  channelName: string | null;
   createdAt: string;
   lastUsedAt: string | null;
 }
 
 export interface CreateKeyResponse extends KeyResponse {
   rawKey: string;
+}
+
+export interface CreateKeyInput {
+  name: string;
+  channelId: number;
 }
 
 // --- Hooks ---
@@ -27,7 +34,7 @@ export function useKeys() {
 
 export function useCreateKey() {
   const queryClient = useQueryClient();
-  return useMutation<CreateKeyResponse, ApiClientError, { name: string }>({
+  return useMutation<CreateKeyResponse, ApiClientError, CreateKeyInput>({
     mutationFn: (data) =>
       apiClient<CreateKeyResponse>("/keys", {
         method: "POST",
@@ -36,6 +43,7 @@ export function useCreateKey() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["keys"] });
       queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
+      queryClient.invalidateQueries({ queryKey: ["channels"] });
     },
   });
 }
