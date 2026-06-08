@@ -21,3 +21,10 @@ class ApiKey(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    channel_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("providers.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="Bound provider; NULL = legacy auto behavior",
+    )
