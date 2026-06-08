@@ -1,16 +1,15 @@
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ChannelInfo(BaseModel):
     id: int
-    provider_name: str = Field(..., alias="providerName")
     channel_name: str = Field(..., alias="channelName")
     multiplier: float
     is_default: bool = Field(..., alias="isDefault")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ModelWithChannels(BaseModel):
@@ -21,14 +20,12 @@ class ModelWithChannels(BaseModel):
     output_price: int = Field(..., alias="outputPrice")
     channels: list[ChannelInfo]
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ModelDetail(BaseModel):
     id: int
     public_name: str = Field(..., alias="publicName")
-    provider_name: str = Field(..., alias="providerName")
-    provider_model_id: str = Field(..., alias="providerModelId")
     description: Optional[str] = None
     input_price: int = Field(..., alias="inputPrice")
     output_price: int = Field(..., alias="outputPrice")
@@ -36,4 +33,4 @@ class ModelDetail(BaseModel):
     channels: list[ChannelInfo]
     created_at: str = Field(..., alias="createdAt")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)

@@ -83,3 +83,15 @@ def test_user_channel_with_models_dump_aliases():
     assert "channel" in dumped
     assert "name" not in dumped["channel"]
     assert dumped["channel"]["channelName"] == "awsq"
+
+
+def test_model_channel_info_excludes_provider_name():
+    from app.schemas.model import ChannelInfo
+
+    obj = ChannelInfo.model_validate(
+        {"id": 1, "channelName": "awsq", "multiplier": 0.3, "isDefault": False}
+    )
+    dumped = obj.model_dump(by_alias=True)
+    assert "providerName" not in dumped
+    assert "name" not in dumped
+    assert dumped["channelName"] == "awsq"
