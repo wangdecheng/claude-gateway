@@ -124,6 +124,7 @@ def create_app() -> FastAPI:
         auth,
         models,
         payment,
+        providers,
         redemption,
         usage,
         v1_models,
@@ -133,6 +134,7 @@ def create_app() -> FastAPI:
     app.include_router(api_keys.router)
     app.include_router(usage.router)
     app.include_router(models.router)
+    app.include_router(providers.router)
     app.include_router(v1_models.router)
     app.include_router(redemption.router)
     app.include_router(payment.router)
