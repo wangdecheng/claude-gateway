@@ -178,3 +178,69 @@ class ModelRouter:
         resolved = self.resolve(request.model)
         routed = request.model_copy(update={"model": resolved.provider_model}, deep=True)
         return RoutedTokenCountRequest(request=routed, resolved=resolved)
+
+    async def resolve_with_channel(
+        self,
+        model_name: str,
+        channel_id: int,
+    ) -> "ResolvedModel":
+        """Resolve a model constrained to a specific provider/channel.
+
+        Raises:
+            AppException(400, MODEL_NOT_IN_CHANNEL) if the model is not on the channel.
+            AppException(500, CHANNEL_UNAVAILABLE) if the provider is inactive.
+        """
+        from app.exceptions import AppException
+        from app.models.model import Model
+        from app.models.model_provider_route import ModelProviderRoute
+        from app.models.provider import Provider
+
+        # 1. Model must be active.
+        m = await self._db.execute(
+            select(Model).where(Model.public_name == model_name, Model.status == "active")
+        )
+        model = m.scalar_one_or_none()
+        if model is None:
+            raise AppException(
+                status_code=400,
+                error=f"不支持的模型: {model_name}",
+                code="UNSUPPORTED_MODEL",
+            )
+
+        # 2. Provider must be active.
+        p = await self._db.execute(
+            select(Provider).where(
+                Provider.id == channel_id, Provider.status == "active"
+            )
+        )
+        provider = p.scalar_one_or_none()
+        if provider is None:
+            raise AppException(
+                status_code=500, error="绑定的渠道已停用", code="CHANNEL_UNAVAILABLE"
+            )
+
+        # 3. There must be a route from this model to this provider.
+        r = await self._db.execute(
+            select(ModelProviderRoute).where(
+                ModelProviderRoute.model_id == model.id,
+                ModelProviderRoute.provider_id == channel_id,
+            )
+        )
+        route = r.scalar_one_or_none()
+        if route is None:
+            raise AppException(
+                status_code=400,
+                error=f"该模型未在绑定渠道上可用: {model_name}",
+                code="MODEL_NOT_IN_CHANNEL",
+            )
+
+        return ResolvedModel(
+            original_model=model_name,
+            provider_id=_canonical_provider_id(provider.name),
+            provider_model=route.provider_model,
+            provider_model_ref=f"{_canonical_provider_id(provider.name)}/{route.provider_model}",
+            thinking_enabled=self._settings.enable_model_thinking,
+            db_model_id=model.id,
+            db_provider_id=provider.id,
+            db_channel_id=channel_id,
+        )
