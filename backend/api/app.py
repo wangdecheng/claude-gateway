@@ -65,6 +65,13 @@ def create_app() -> FastAPI:
         await app.state.billing_worker.start()
         logger.info("BillingWorker started")
 
+        # Load token coefficient config (global + per-model overrides)
+        from app.services.token_coefficient_service import TokenCoefficientService
+
+        app.state.token_coefficient_service = TokenCoefficientService(session_factory)
+        await app.state.token_coefficient_service.load()
+        logger.info("TokenCoefficientService loaded")
+
         logger.info("Application startup complete")
         yield
 
@@ -119,6 +126,7 @@ def create_app() -> FastAPI:
         admin_models,
         admin_providers,
         admin_redemption,
+        admin_token_coefficients,
         admin_users,
         api_keys,
         auth,
@@ -143,6 +151,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_channels.router)
     app.include_router(admin_redemption.router)
     app.include_router(admin_users.router)
+    app.include_router(admin_token_coefficients.router)
 
     # === Health check ===
     @app.get("/api/health")
