@@ -78,18 +78,34 @@ backend/alembic/versions/014_*.py                  # Migration
 
 ### 3. Backend — modified files
 
-- `backend/api/app.py` — register `admin_token_coefficients` router; instantiate `TokenCoefficientService` and call `.load()` in lifespan; store on `app.state`.
-- `backend/app/routers/proxy.py` — `billing_stream`:
-  - Look up the coefficient once at request entry via `state.token_coefficient_service.get_for_model(model_id)`.
-  - Wrap the provider stream with `_adjusted_usage_stream(raw_stream, coefficient)`.
-  - Pass the same `coefficient` into the settlement path so `process_token_recording` applies it before calling `compute_cost` and writing `UsageRecord`.
-- `backend/app/services/billing_service.py` — `process_token_recording` (or equivalent settlement entry point): apply `apply_coefficient()` to the raw token counts before computing cost and before persisting `UsageRecord`.
-- `backend/app/routers/admin_token_coefficients.py` — call `state.token_coefficient_service.invalidate()` after every successful PUT/DELETE.
+**Actual flow** (as of this writing):
+```
+create_message (proxy.py:146)
+  → async for chunk in provider_instance.stream_response(...)
+      · accumulated_usage  ← raw tokens extracted from SSE
+      · yield chunk        ← raw chunk sent to client
+  → finally: write_pending_billing(db, ... input_tokens=accumulated_usage[...])
+  → StreamingResponse(billing_stream(), ...)
+
+[Background, separate process step]
+BillingWorker → settle_one(db, pending)
+  → compute_costs_for_pending(pending, db)  ← reads pending.*_tokens, calls compute_cost
+  → write RequestLog, BillingRecord, UsageRecord  ← all copy from pending.*_tokens
+```
+
+Two places need to apply the coefficient so response and billing stay aligned:
+
+- **`backend/app/routers/proxy.py`** — `create_message` / `billing_stream` (inner async function):
+  1. Look up the coefficient once at request entry via `request.app.state.token_coefficient_service.get_for_model(model.id)`.
+  2. After the upstream yields a chunk, rewrite the chunk's `usage` JSON via `_apply_coefficient_to_sse_event(chunk, coefficient)` **before** yielding to the client — so the client sees the discounted values.
+  3. In the `finally` block, apply `apply_coefficient()` to `accumulated_usage` **before** passing to `write_pending_billing` — so settlement (which reads from `PendingBilling` row) charges the discounted amount.
+- **`backend/api/app.py`** — lifespan: instantiate `TokenCoefficientService`; on startup call `.load()`; on admin write call `.invalidate()` (from the router); store on `app.state`.
+- **`backend/app/routers/admin_token_coefficients.py`** — call `app.state.token_coefficient_service.invalidate()` after every successful PUT/DELETE.
 - `frontend/app/admin/layout.tsx` (or equivalent nav config) — add a "折扣配置" link.
 
 ### 4. Coefficient resolution priority
 
-For a request routed to `model_id = M`:
+For a request routed to `model_id = M` (the gateway `Model.id`, resolved by `_lookup_model` in `proxy.py`):
 
 1. If `M` has an override row → return `override.coefficient`.
 2. Else if `scope_type='global'` row exists → return `global.coefficient`.
@@ -213,34 +229,73 @@ def _apply_coefficient_to_sse_event(event: str, coefficient: float) -> str:
     return "\n".join(out_lines)
 ```
 
-### 8. Stream wrapping (in `proxy.py`)
+### 8. SSE rewrite in `proxy.py` (inside `billing_stream`)
 
+The actual code path lives inside the inner `billing_stream` async function in `create_message`. We modify it in two places:
+
+**In the streaming loop** (where the chunk is yielded to the client):
 ```python
-async def _adjusted_usage_stream(raw_stream, coefficient: float):
-    if coefficient == 1.0:
-        async for chunk in raw_stream:
-            yield chunk
-        return
-    buffer = ""
-    SSE_DELIM = "\n\n"
-    async for chunk in raw_stream:
-        buffer += chunk
-        while SSE_DELIM in buffer:
-            event, buffer = buffer.split(SSE_DELIM, 1)
-            yield _apply_coefficient_to_sse_event(event, coefficient) + SSE_DELIM
-    if buffer:
-        yield _apply_coefficient_to_sse_event(buffer, coefficient)
+async for chunk in provider_instance.stream_response(provider_body, request_id=...):
+    # Existing usage extraction (unchanged)
+    usage = _extract_usage_from_sse_line(chunk)
+    if usage:
+        for key in ("input_tokens", "output_tokens",
+                    "cache_read_tokens", "cache_creation_tokens"):
+            val = usage.get(key, 0)
+            if val:
+                accumulated_usage[key] = val
+
+    # Existing model remap
+    if _remap_model:
+        chunk = chunk.replace(_provider_model, _original_model)
+
+    # NEW: rewrite usage in the chunk before yielding to the client
+    yield _apply_coefficient_to_sse_event(chunk, coefficient)
 ```
 
-In `billing_stream`:
+**In the `finally` block** (before `write_pending_billing`):
 ```python
-coefficient = request.app.state.token_coefficient_service.get_for_model(model_id)
-raw_stream = provider.stream_response(...)
-adjusted_stream = _adjusted_usage_stream(raw_stream, coefficient)
-return anthropic_sse_streaming_response(adjusted_stream)
+finally:
+    adjusted = apply_coefficient(
+        input_tokens=accumulated_usage["input_tokens"] or 0,
+        output_tokens=accumulated_usage["output_tokens"] or 0,
+        cache_read_tokens=accumulated_usage["cache_read_tokens"] or 0,
+        cache_creation_tokens=accumulated_usage["cache_creation_tokens"] or 0,
+        coefficient=coefficient,
+    )
+    await write_pending_billing(
+        db, request_id=uuid.uuid4(), user_id=user_id, api_key_id=api_key_id,
+        model_id=model.id, route_id=routed.db_route_id, provider_id=provider.id,
+        input_tokens=adjusted.input_tokens,
+        output_tokens=adjusted.output_tokens,
+        cache_read_tokens=adjusted.cache_read_tokens,
+        cache_creation_tokens=adjusted.cache_creation_tokens,
+        upstream_message_id=upstream_message_id,
+    )
 ```
 
-In the `finally` block, hand `coefficient` to the settlement helper so it can call `apply_coefficient()` on the collected raw tokens before persisting.
+The coefficient is looked up once at the top of `create_message` and captured in the closure of `billing_stream`:
+```python
+coefficient = request.app.state.token_coefficient_service.get_for_model(model.id)
+```
+
+**Why not wrap the whole stream in a separate function?** The current code already does chunk-level parsing (`_extract_usage_from_sse_line`, `_extract_message_id_from_sse_line`, model remap). Inlining the rewrite avoids double-buffering the chunk and keeps the existing single-pass parser in place. `_apply_coefficient_to_sse_event` itself is a pure function that's easy to unit-test.
+
+### 4a. Why this is a one-write fix (not two)
+
+`PendingBilling` is the only source of truth for downstream tables. The flow is:
+
+```
+billing_stream finally: write_pending_billing(adjusted_tokens)  ← adjusted at write time
+  → PendingBilling row stores ADJUSTED tokens
+  → BillingWorker → settle_one → reads pending.input_tokens etc.
+    → compute_costs_for_pending(pending)        ← uses ADJUSTED values
+    → RequestLog(input_tokens=pending.input_tokens, ...)  ← copies ADJUSTED
+    → BillingRecord(amount=computed_cost)        ← based on ADJUSTED cost
+    → UsageRecord(input_tokens=pending.input_tokens, ...)  ← copies ADJUSTED
+```
+
+So we only need to call `apply_coefficient()` **once** — at the boundary where `accumulated_usage` becomes `PendingBilling.*_tokens`. The settlement layer and all derived tables inherit the discount for free. This also keeps the discount visible in user-facing usage history (`UsageRecord`) — so what the user sees in their dashboard matches what they were charged.
 
 ### 9. Frontend — new page
 
@@ -299,10 +354,11 @@ The existing `/admin` middleware already protects the route. Add a sidebar link 
 ### Backend integration tests
 
 - New: `test_billing_with_coefficient.py`:
-  - Mock upstream SSE; with `coefficient=0.5`, the persisted `UsageRecord` has `ceil(raw / 2)` for each field.
-  - `BillingRecord.amount` matches `compute_cost(adjusted, ...)`.
+  - Mock upstream SSE; with `coefficient=0.5`, the persisted `PendingBilling` row has `ceil(raw / 2)` for each field.
+  - After `BillingWorker._scan_and_settle` runs, the resulting `RequestLog`, `BillingRecord`, and `UsageRecord` rows all reflect the adjusted values; `BillingRecord.amount_cents` matches `compute_cost(adjusted, prices, multiplier)`.
   - End-to-end through `POST /v1/messages` (happy path).
-- Existing `test_settle.py` extended with a parameterised case `coefficient ∈ {1.0, 0.5, 0.33}`.
+- Existing `test_settle.py` extended with a parameterised case `coefficient ∈ {1.0, 0.5, 0.33}` (the discount is applied at the `PendingBilling` write site, so `settle_one` itself is unchanged but tests can mutate the pending row to confirm downstream tables inherit the values).
+- `test_proxy_response_with_coefficient.py` (new): mock upstream; assert that the chunks yielded to the client have the adjusted usage in `message_start` and `message_delta` events.
 
 ### Frontend tests
 
