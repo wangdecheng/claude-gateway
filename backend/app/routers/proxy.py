@@ -15,6 +15,8 @@ from api.models.anthropic import MessagesRequest
 from app.exceptions import AppException
 from app.models.model import Model
 from app.models.provider import Provider, ProviderKey
+from app.services.billing.token_coefficient import apply_coefficient
+from app.services.streaming.sse_rewrite import _apply_coefficient_to_sse_event
 from config.settings import get_settings
 from core.anthropic.sse import ANTHROPIC_SSE_RESPONSE_HEADERS
 from core.trace import trace_event
@@ -172,6 +174,13 @@ async def create_message(
             status_code=400, error=f"不支持的模型: {body.model}", code="UNSUPPORTED_MODEL"
         )
 
+    # ── 2a. Resolve token coefficient (discount) for this model ─
+    tcs = getattr(request.app.state, "token_coefficient_service", None)
+    if tcs is not None:
+        coefficient = tcs.get_for_model(model.id)
+    else:
+        coefficient = 1.0
+
     # ── 3. Get provider ───────────────────────────────────────
     provider_result = await db.execute(select(Provider).where(Provider.id == routed.db_provider_id))
     provider = provider_result.scalar_one_or_none()
@@ -263,14 +272,17 @@ async def create_message(
                 if mid:
                     upstream_message_id = mid
                 if _remap_model:
-                    yield chunk.replace(_provider_model, _original_model)
-                else:
-                    yield chunk
+                    chunk = chunk.replace(_provider_model, _original_model)
+                chunk = _apply_coefficient_to_sse_event(chunk, coefficient)
+                yield chunk
         finally:
-            input_tokens = accumulated_usage["input_tokens"] or 0
-            output_tokens = accumulated_usage["output_tokens"] or 0
-            cache_read_tokens = accumulated_usage["cache_read_tokens"] or 0
-            cache_creation_tokens = accumulated_usage["cache_creation_tokens"] or 0
+            adjusted = apply_coefficient(
+                input_tokens=accumulated_usage["input_tokens"] or 0,
+                cache_read_tokens=accumulated_usage["cache_read_tokens"] or 0,
+                cache_creation_tokens=accumulated_usage["cache_creation_tokens"] or 0,
+                output_tokens=accumulated_usage["output_tokens"] or 0,
+                coefficient=coefficient,
+            )
             try:
                 from app.services.billing.pending import write_pending_billing
                 await write_pending_billing(
@@ -281,10 +293,10 @@ async def create_message(
                     model_id=model.id,
                     route_id=routed.db_route_id,
                     provider_id=provider.id,
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    cache_read_tokens=cache_read_tokens,
-                    cache_creation_tokens=cache_creation_tokens,
+                    input_tokens=adjusted.input_tokens,
+                    output_tokens=adjusted.output_tokens,
+                    cache_read_tokens=adjusted.cache_read_tokens,
+                    cache_creation_tokens=adjusted.cache_creation_tokens,
                     upstream_message_id=upstream_message_id,
                 )
                 await db.commit()
