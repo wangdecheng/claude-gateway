@@ -14,6 +14,7 @@ import {
   BarChart3,
   FileText,
   Search,
+  Percent,
 } from "lucide-react";
 
 const SIDEBAR_GROUPS = [
@@ -24,6 +25,7 @@ const SIDEBAR_GROUPS = [
       { href: "/admin/models", label: "模型管理", icon: Box },
       { href: "/admin/providers", label: "供应商管理", icon: Server },
       { href: "/admin/channels", label: "渠道配置", icon: Sliders },
+      { href: "/admin/discounts", label: "折扣配置", icon: Percent },
     ],
   },
   {
