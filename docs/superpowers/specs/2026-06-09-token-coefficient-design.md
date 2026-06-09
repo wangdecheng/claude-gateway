@@ -1,7 +1,7 @@
 # Token Coefficient (Discount) — Design Spec
 
 **Date**: 2026-06-09
-**Status**: draft
+**Status**: approved
 
 ## Summary
 
@@ -384,3 +384,37 @@ The existing `/admin` middleware already protects the route. Add a sidebar link 
 - Caching with TTL instead of invalidate-on-write.
 - Audit log of coefficient changes (table already records `updated_by` and `updated_at`; a dedicated `audit_log` row could capture old → new).
 - Reporting / dashboard showing aggregate savings due to coefficients.
+
+## Implementation Notes
+
+Implementation plan: [`docs/superpowers/plans/2026-06-09-token-coefficient-implementation.md`](../plans/2026-06-09-token-coefficient-implementation.md).
+
+### Commit range
+
+```
+a4352da test(frontend): add discounts page tests
+0f7dbd4 feat(frontend): add admin discounts page with global + per-model config
+983435b feat(frontend): add token coefficient API hooks
+b4294c4 feat(proxy): apply token coefficient to SSE response and PendingBilling
+c04d985 feat(app): register admin token-coefficients router and start service
+e5600cb feat(router): add admin token coefficient endpoints
+c0257f3 feat(service): add TokenCoefficientService with resolution and cache
+9d636a1 feat(schema): add token coefficient Pydantic schemas
+e673c3a feat(streaming): add pure SSE rewrite helper with tests
+5f80c31 feat(billing): add pure apply_coefficient helper with tests
+723a168 feat(model): add TokenCoefficientConfig ORM
+af4601e feat(db): add token_coefficient_configs migration
+256b454 docs(plan): add token coefficient implementation plan
+14ae31e docs(spec): refine token coefficient spec to match actual proxy/settlement flow
+fe48831 docs(spec): add token coefficient design spec
+```
+
+### Deviations from the literal spec
+
+- **Public-name field name**: the spec refers to `model.name` / `model_public_name` interchangeably. The implementation exposes `model_public_name` only (the gateway's `Model.public_name`) on `TokenCoefficientModelOut`; the internal `name` slug is not surfaced. This matches the spec's intent — the admin UI shows the public-facing label.
+- **Defensive `getattr` on the ORM**: the `updated_by` foreign key is loaded lazily and may be `None` if the user row was deleted (cascade on user delete is not configured). The router does `getattr(user, "username", None)` to fall back to `None` rather than raising. This is a small robustness add, not a spec change.
+- **Service `invalidate()` runs on every admin write** as the spec calls out, but is also called defensively from the lifespan `shutdown` hook to be safe across test-suite teardown — not strictly required, but keeps the in-memory cache empty between test cases.
+- **Alembic migration filename**: the spec placeholder was `014_*`; the actual file is `014_<rev_id>_token_coefficient_configs.py`, as is the project convention.
+- **Frontend nav entry**: the spec says "add a 折扣配置 link in `frontend/app/admin/layout.tsx` (or equivalent nav config)". The implementation adds it to the existing sidebar config used by the admin layout, not a fresh file. No new file was needed.
+- **Missing `app/admin/channels/page.tsx` `tsc` errors** are pre-existing and unrelated to this feature (they predate the token coefficient work and refer to a stale `ProviderOption` shape).
+- **Ruff**: the new test files (`tests/test_admin_token_coefficients_router.py`, `tests/services/test_token_coefficient_service.py`) follow the project's existing pattern of `sys.path.insert` before `from app import …`, which ruff flags as `E402`. The same pattern is used in every other integration test in the suite, so this is consistent with the codebase rather than a new regression.
