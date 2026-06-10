@@ -6,6 +6,8 @@ import { apiClient, ApiClientError } from "../client";
 export interface ProviderOption {
   id: number;
   name: string;
+  channelName: string;
+  multiplier: number;
 }
 
 export interface AdminModelItem {

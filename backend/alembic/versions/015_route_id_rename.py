@@ -20,10 +20,10 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     # request_logs
     with op.batch_alter_table("request_logs") as batch:
-        try:
-            batch.drop_constraint("request_logs_channel_id_fkey", type_="foreignkey")
-        except Exception:
-            pass
+        # 013 DROPped channel_configs CASCADE, taking request_logs_channel_id_fkey
+        # with it, so the constraint no longer exists when 015 runs. Use
+        # IF EXISTS so the DDL is idempotent across the CASCADE path.
+        op.execute("ALTER TABLE request_logs DROP CONSTRAINT IF EXISTS request_logs_channel_id_fkey")
         batch.alter_column(
             "channel_id",
             new_column_name="route_id",
@@ -39,10 +39,7 @@ def upgrade() -> None:
 
     # pending_billings
     with op.batch_alter_table("pending_billings") as batch:
-        try:
-            batch.drop_constraint("pending_billings_channel_id_fkey", type_="foreignkey")
-        except Exception:
-            pass
+        op.execute("ALTER TABLE pending_billings DROP CONSTRAINT IF EXISTS pending_billings_channel_id_fkey")
         batch.alter_column(
             "channel_id",
             new_column_name="route_id",
@@ -58,10 +55,7 @@ def upgrade() -> None:
 
     # usage_records
     with op.batch_alter_table("usage_records") as batch:
-        try:
-            batch.drop_constraint("usage_records_channel_id_fkey", type_="foreignkey")
-        except Exception:
-            pass
+        op.execute("ALTER TABLE usage_records DROP CONSTRAINT IF EXISTS usage_records_channel_id_fkey")
         batch.alter_column(
             "channel_id",
             new_column_name="route_id",
