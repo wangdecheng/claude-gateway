@@ -22,6 +22,8 @@ node_modules/
 .next/
 .superpowers
 docs/superpowers
+# TypeScript incremental build cache (frontend/tsconfig.json has `incremental: true`)
+*.tsbuildinfo
 
 # Environment
 .env

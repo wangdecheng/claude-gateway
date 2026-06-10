@@ -142,20 +142,36 @@ export function ProviderEditForm({
         </DialogHeader>
 
         <form onSubmit={handleSubmit(onFormSubmit)} className="space-y-4">
-          {/* Name — create mode only (editable name would break SK bindings) */}
-          {!isEdit && (
-            <div className="space-y-2">
-              <Label htmlFor="name">供应商名称 *</Label>
-              <Input
-                id="name"
-                placeholder="如 Anthropic、DeepSeek"
-                {...register("name", { required: "请输入供应商名称" })}
-              />
-              {errors.name && (
-                <p className="text-sm text-red-500">{errors.name.message}</p>
-              )}
-            </div>
-          )}
+          {/* Name — editable only on create (changing it would break SK bindings) */}
+          <div className="space-y-2">
+            <Label htmlFor="name">
+              供应商名称{!isEdit && <span className="text-red-500"> *</span>}
+            </Label>
+            {isEdit ? (
+              <>
+                <Input
+                  id="name"
+                  readOnly
+                  value={provider?.name ?? ""}
+                  className="bg-muted cursor-not-allowed"
+                />
+                <p className="text-xs text-neutral-text-secondary">
+                  供应商名称不可修改（影响 Key 绑定），只能调整渠道名。
+                </p>
+              </>
+            ) : (
+              <>
+                <Input
+                  id="name"
+                  placeholder="如 Anthropic、DeepSeek"
+                  {...register("name", { required: "请输入供应商名称" })}
+                />
+                {errors.name && (
+                  <p className="text-sm text-red-500">{errors.name.message}</p>
+                )}
+              </>
+            )}
+          </div>
 
           {/* Channel name + Multiplier */}
           <div className="grid grid-cols-[1fr_120px] gap-4">
