@@ -90,3 +90,38 @@ def test_apply_coefficient_zero_inputs_stay_zero():
     assert out.cache_read_tokens == 0
     assert out.cache_creation_tokens == 0
     assert out.output_tokens == 0
+
+
+def test_apply_coefficient_cache_read_passthrough():
+    """cache_read_tokens is never multiplied by the coefficient."""
+    from app.services.billing.token_coefficient import apply_coefficient
+
+    out = apply_coefficient(
+        input_tokens=1000,
+        cache_read_tokens=8000,
+        cache_creation_tokens=500,
+        output_tokens=200,
+        coefficient=0.5,
+    )
+    # The three discounted fields are ceil(raw * 0.5):
+    assert out.input_tokens == 500
+    assert out.cache_creation_tokens == 250
+    assert out.output_tokens == 100
+    # cache_read is the raw value, untouched:
+    assert out.cache_read_tokens == 8000
+
+
+def test_apply_coefficient_cache_read_passthrough_at_various_coefficients():
+    """cache_read passes through for any coefficient in (0, 1]."""
+    import pytest
+    from app.services.billing.token_coefficient import apply_coefficient
+
+    for coef in (0.1, 0.33, 0.5, 0.99, 1.0):
+        out = apply_coefficient(
+            input_tokens=10,
+            cache_read_tokens=12345,
+            cache_creation_tokens=10,
+            output_tokens=10,
+            coefficient=coef,
+        )
+        assert out.cache_read_tokens == 12345, f"coef={coef}"

@@ -1,9 +1,16 @@
 """Pure helpers for applying the admin-configured token coefficient (discount).
 
-The coefficient is a float in (0, 1]; it is multiplied with each of the four
-Anthropic token fields (input / cache_read / cache_creation / output). The
-result is rounded up with math.ceil so a 0.5x coefficient never rounds below
-half a token.
+The coefficient is a float in (0, 1]; it is multiplied with three of the four
+Anthropic token fields — `input_tokens`, `cache_creation_input_tokens` (cache
+write), and `output_tokens`. The fourth field, `cache_read_input_tokens`, is
+**not** discounted: it is passed through at the raw upstream value. The reason
+is that upstream providers (Anthropic, DeepSeek) already discount cache reads
+heavily, and stacking the gateway-level discount on top of an already-cheap
+field offers little benefit. Input tokens and cache writes, by contrast, carry
+the full upstream cost.
+
+Each discounted field is rounded up with ``math.ceil`` so a 0.5x coefficient
+never rounds below half a token.
 
 The same AdjustedUsage is the source of truth for both the SSE response
 (rewritten via sse_rewrite._apply_coefficient_to_sse_event) and the
@@ -40,7 +47,7 @@ def apply_coefficient(
         )
     return AdjustedUsage(
         input_tokens=math.ceil(input_tokens * coefficient),
-        cache_read_tokens=math.ceil(cache_read_tokens * coefficient),
+        cache_read_tokens=cache_read_tokens,  # pass-through: cache read not discounted
         cache_creation_tokens=math.ceil(cache_creation_tokens * coefficient),
         output_tokens=math.ceil(output_tokens * coefficient),
     )
