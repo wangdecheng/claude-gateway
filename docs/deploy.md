@@ -245,14 +245,98 @@ ssh -i ~/ai/aliyun-ai01.pem root@47.103.206.6 \
 
 ---
 
-## 9. 文件清单
+## 9. 定期清理（append-only 表 + 日志）
+
+数据库里 `request_logs` / `usage_records` / `pending_billings` / `redemption_codes` 都是 append-only,无清理逻辑 → 不加干预的话一年下来能涨到 10GB+。日志同问题:`loguru` 配了 `rotation="50 MB"` 但默认无限期保留轮转文件。
+
+### 9.1 清理脚本
+
+`backend/scripts/cleanup_old_records.py` 删除过期的行,按以下默认保留期(单位:天,全部用 `CLEANUP_*_DAYS` env var 覆盖):
+
+| 表 | 默认保留 | 备注 |
+|---|---|---|
+| `request_logs` | 180 | 仅删**无** `billing_record` 引用的行(无 `ON DELETE CASCADE`) |
+| `usage_records` | 90 | |
+| `pending_billings` (`status='dead'`) | 7 | `pending` / `settled` 永远不动 |
+| `redemption_codes` (`status='issued'` 且已过期) | 7 天宽限 | `used` 留作审计,永不删 |
+
+幂等、可重跑。`--dry-run` 只统计不删,适合先看会清多少:
+
+```bash
+# 在远端手动跑
+ssh -i ~/ai/aliyun-ai01.pem root@47.103.206.6 \
+  'cd /opt/cloude-gateway/backend && \
+   .venv/bin/python -m scripts.cleanup_old_records --dry-run'
+
+# 实际跑
+ssh -i ~/ai/aliyun-ai01.pem root@47.103.206.6 \
+  'cd /opt/cloude-gateway/backend && \
+   .venv/bin/python -m scripts.cleanup_old_records'
+```
+
+输出形如:
+
+```
+request_logs: deleted 1234 rows (retention=180 days, rowcount=1234)
+usage_records: 0 rows past retention; skipping
+pending_billings (dead): deleted 12 rows (retention=7 days, rowcount=12)
+redemption_codes (issued+expired): deleted 8 rows (retention=7 days, rowcount=8)
+done. total deleted: 1254
+```
+
+### 9.2 systemd timer(自动每周)
+
+`bin/cloude-cleanup.{service,timer}` 推到远端 `/etc/systemd/system/`,启 timer 即可每周日 03:17 自动跑:
+
+```bash
+# 一次性安装(只在远端)
+ssh -i ~/ai/aliyun-ai01.pem root@47.103.206.6 '
+  cp /opt/cloude-gateway/bin/cloude-cleanup.{service,timer} /etc/systemd/system/ &&
+  systemctl daemon-reload &&
+  systemctl enable --now cloude-cleanup.timer
+'
+
+# 验证 timer 已排上
+ssh -i ~/ai/aliyun-ai01.pem root@47.103.206.6 \
+  'systemctl list-timers cloude-cleanup.timer --no-pager'
+
+# 看上次跑的结果
+ssh -i ~/ai/aliyun-ai01.pem root@47.103.206.6 \
+  'systemctl status cloude-cleanup.service --no-pager; \
+   journalctl -u cloude-cleanup.service -n 50 --no-pager'
+```
+
+`Persistent=true` 保证错过的那周补跑一次(脚本幂等,补跑不会乱删)。
+
+### 9.3 调保留期
+
+在 `/opt/cloude-gateway/backend/.env` 加(然后 `systemctl restart cloude-backend` 不影响 timer,但改完想立即生效可手动跑一次脚本):
+
+```bash
+CLEANUP_REQUEST_LOG_DAYS=365
+CLEANUP_USAGE_RECORD_DAYS=180
+CLEANUP_PENDING_BILLING_DAYS=30
+CLEANUP_REDEMPTION_GRACE_DAYS=14
+```
+
+合规要求高的场景,把保留期调大;纯 demo 可调到 7/7/3/3 加速释放。
+
+### 9.4 日志轮转
+
+`backend/config/logging_config.py` 已经把 `loguru` 的 `retention=10`(保留 10 份 50MB 轮转 ≈ 500MB 上限),不需额外配。`/var/log/cloude-gateway/backend.log` 是 systemd 写出去的另一份,跟 OS 默认 logrotate / journald 走;如果磁盘小,把 `/etc/systemd/journald.conf` 的 `SystemMaxUse=` 调到 500M 之类。
+
+---
+
+## 10. 文件清单
 
 ```
 bin/deploy.sh                                    # 部署脚本
+bin/cloude-cleanup.service                       # 清理 service unit(推)
+bin/cloude-cleanup.timer                         # 清理 timer unit(推)
 docs/deploy.md                                   # 本文档
-backend/.env.example                             # 环境变量样例（推）
-backend/.env                                     # 本地开发用（不推）
-backend/secrets/jwt_private.pem, jwt_public.pem  # 远端生成（不推）
-frontend/.env.example                            # 前端样例（推）
-frontend/.env.production                         # 远端独立（不推）
+backend/.env.example                             # 环境变量样例(推)
+backend/.env                                     # 本地开发用(不推)
+backend/secrets/jwt_private.pem, jwt_public.pem  # 远端生成(不推)
+frontend/.env.example                            # 前端样例(推)
+frontend/.env.production                         # 远端独立(不推)
 ```

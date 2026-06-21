@@ -1,0 +1,17 @@
+[Unit]
+Description=cloude-gateway: weekly cleanup of append-only billing tables
+Documentation=file:///opt/cloude-gateway/docs/deploy.md
+
+[Timer]
+# Run once a week. Picked Sunday 03:17 local time — off the hour, away
+# from other weekly tasks, and after the lowest-traffic window.
+OnCalendar=Sun *-*-* 03:17:00
+# If the server was off at the scheduled time, run once on next boot
+# (Persistent=true) — the script is idempotent so a delayed run is safe.
+Persistent=true
+# Mild jitter so multiple servers don't pile onto the DB at the same instant.
+RandomizedDelaySec=300
+Unit=cloude-cleanup.service
+
+[Install]
+WantedBy=timers.target

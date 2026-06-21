@@ -1,0 +1,23 @@
+[Unit]
+Description=cloude-gateway: purge old request_logs / usage_records / pending_billings / redemption_codes
+Documentation=file:///opt/cloude-gateway/docs/deploy.md
+# Run after the backend is up so the DB schema is guaranteed to exist.
+After=cloude-backend.service
+Wants=cloude-backend.service
+
+[Service]
+Type=oneshot
+# Same .env / cwd as the backend, so DATABASE_URL resolves to the prod DB.
+WorkingDirectory=/opt/cloude-gateway/backend
+EnvironmentFile=/opt/cloude-gateway/backend/.env
+# Use the project venv's python so SQLAlchemy / asyncpg / aiosqlite match
+# the backend's pinned versions.
+ExecStart=/opt/cloude-gateway/backend/.venv/bin/python -m scripts.cleanup_old_records
+# Surface failures in the journal without spamming.
+StandardOutput=journal
+StandardError=journal
+# Hard timeout: the script is bounded by 4 DELETEs; if it takes >10 min
+# something is very wrong with the DB.
+TimeoutStartSec=600
+# Don't keep the process alive after success/failure.
+RemainAfterExit=no
