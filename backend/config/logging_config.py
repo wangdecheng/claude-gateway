@@ -127,7 +127,10 @@ def configure_logging(
     # Truncate log file on fresh start for clean debugging
     log_path.write_text("")
 
-    # Add file sink: JSON lines, DEBUG level, context vars at top level
+    # Add file sink: JSON lines, DEBUG level, context vars at top level.
+    # rotation triggers a new file at 50 MB; retention caps the count of
+    # rotated files kept on disk so they don't accumulate forever. Adjust
+    # retention if you need a longer history for incident triage.
     logger.add(
         log_file,
         level="DEBUG",
@@ -135,6 +138,7 @@ def configure_logging(
         encoding="utf-8",
         mode="a",
         rotation="50 MB",
+        retention=10,
         enqueue=True,
     )
 
