@@ -107,6 +107,8 @@ export default function DiscountsPage() {
         <h2 className="text-sm font-medium text-slate-700">全局默认系数</h2>
         <p className="mt-1 text-xs text-slate-500">
           所有模型的默认折扣系数（0 &lt; x ≤ 1）。1.0 表示无折扣。
+          作用于 <code>input_tokens</code>、<code>cache_creation_input_tokens</code>、<code>output_tokens</code>；
+          <code>cache_read_input_tokens</code> 不参与折扣。
         </p>
         <div className="mt-4 flex items-end gap-3">
           <div className="w-40">
@@ -226,6 +228,10 @@ export default function DiscountsPage() {
                 editing && setEditing({ ...editing, draft: e.target.value, error: null })
               }
             />
+            <p className="text-xs text-slate-500">
+              作用于 <code>input_tokens</code>、<code>cache_creation_input_tokens</code>、<code>output_tokens</code>；
+              <code>cache_read_input_tokens</code> 不参与折扣。
+            </p>
             {editing?.error && (
               <p className="text-xs text-red-600">{editing.error}</p>
             )}
