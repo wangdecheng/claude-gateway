@@ -2,7 +2,10 @@
 
 This is a pure function: it takes a single SSE event string and a coefficient,
 and returns the event with the `usage` block in any `data:` line rewritten so
-that each Anthropic token field is multiplied by the coefficient (ceil).
+that the three discounted Anthropic token fields are multiplied by the
+coefficient (ceil). The fourth field, `cache_read_input_tokens`, is **not**
+discounted — it is passed through at the raw upstream value. See
+`app.services.billing.token_coefficient` for the rationale.
 
 Behaviour:
 - Non-data lines (`event:`, `id:`, comments) are passed through unchanged.
@@ -19,7 +22,6 @@ import math
 
 USAGE_FIELDS = (
     "input_tokens",
-    "cache_read_input_tokens",
     "cache_creation_input_tokens",
     "output_tokens",
 )
@@ -53,7 +55,8 @@ def _rewrite_usage_in_place(obj: dict, coefficient: float) -> bool:
 
 def _apply_coefficient_to_sse_event(event: str, coefficient: float) -> str:
     """Rewrite a single SSE event so that any data: line whose payload contains
-    a 'usage' dict has its token counts multiplied by `coefficient` (ceil)."""
+    a 'usage' dict has its discounted token counts multiplied by `coefficient`
+    (ceil). `cache_read_input_tokens` is left at its raw upstream value."""
     if coefficient == 1.0:
         return event
     lines = event.split("\n")
