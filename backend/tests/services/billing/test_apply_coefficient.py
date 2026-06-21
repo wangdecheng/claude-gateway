@@ -27,7 +27,8 @@ def test_apply_coefficient_1_returns_same_values():
 
 
 def test_apply_coefficient_half_ceil_boundary():
-    """7 * 0.5 = 3.5 -> ceil = 4.  8 * 0.5 = 4.0 -> ceil = 4."""
+    """7 * 0.5 = 3.5 -> ceil = 4.  8 * 0.5 = 4.0 -> ceil = 4.
+    cache_read is NOT discounted, so the raw value 8 stays 8 (not 4)."""
     from app.services.billing.token_coefficient import apply_coefficient
 
     out = apply_coefficient(
@@ -38,13 +39,13 @@ def test_apply_coefficient_half_ceil_boundary():
         coefficient=0.5,
     )
     assert out.input_tokens == 4
-    assert out.cache_read_tokens == 4
+    assert out.cache_read_tokens == 8   # was 4; now pass-through
     assert out.cache_creation_tokens == 1
     assert out.output_tokens == 0
 
 
 def test_apply_coefficient_third_rounds_up():
-    """1 * 0.33 = 0.33 -> ceil = 1."""
+    """1 * 0.33 = 0.33 -> ceil = 1. cache_read is NOT discounted (raw = 2)."""
     from app.services.billing.token_coefficient import apply_coefficient
 
     out = apply_coefficient(
@@ -55,7 +56,7 @@ def test_apply_coefficient_third_rounds_up():
         coefficient=0.33,
     )
     assert out.input_tokens == 1
-    assert out.cache_read_tokens == 1
+    assert out.cache_read_tokens == 2   # was 1; now pass-through
     assert out.cache_creation_tokens == 1
     assert out.output_tokens == 2
 
