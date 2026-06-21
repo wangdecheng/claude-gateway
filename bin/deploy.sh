@@ -219,6 +219,34 @@ if [ "$FRONTEND" = 1 ]; then
   echo
 fi
 
+# ── Step 2.5: rsync bin/ (deploy tooling + runtime config) ────────
+# bin/ holds deploy.sh itself (local-only orchestrator) plus runtime
+# config that lives next to the deployer — currently the systemd
+# unit files for cloude-cleanup.{service,timer}. Skip deploy.sh so
+# we never overwrite the script that's currently running.
+bin_excludes=(
+  --exclude 'deploy.sh'
+)
+if [ "$DRY_RUN" = 1 ]; then
+  say "syncing bin/ → $REMOTE_HOST:$REMOTE_DIR/bin/  (skip deploy.sh)"
+  extract_patterns "${common_excludes[@]}" "${bin_excludes[@]}" > /tmp/.deploy-pats
+  build_predicate < /tmp/.deploy-pats
+  if [ ${#predicate[@]} -gt 0 ]; then
+    count=$(find "$REPO_ROOT/bin" \( "${predicate[@]}" \) -prune -o -type f -print | wc -l | tr -d ' ')
+    say "  (dry-run) would transfer $count files; first 40:"
+    find "$REPO_ROOT/bin" \( "${predicate[@]}" \) -prune -o -type f -print \
+      | sed "s|^$REPO_ROOT/bin/||" | head -40 | sed 's/^/    /'
+  else
+    say "  (dry-run) no excludes; would transfer everything in bin/"
+  fi
+else
+  rsync -a --delete \
+    "${common_excludes[@]}" "${bin_excludes[@]}" \
+    "${RSYNC_SSH[@]}" \
+    "$REPO_ROOT/bin/" "$REMOTE_HOST:$REMOTE_DIR/bin/"
+fi
+echo
+
 # ── Step 3: remote post-sync commands ───────────────────────────────
 if [ "$DRY_RUN" = 1 ]; then
   say "DRY-RUN: skipping remote install / migrate / build / restart"
