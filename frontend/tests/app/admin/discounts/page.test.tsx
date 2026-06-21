@@ -58,6 +58,22 @@ describe("DiscountsPage", () => {
     expect(screen.getByDisplayValue("0.8")).toBeInTheDocument();
     expect(screen.getByText("model-a")).toBeInTheDocument();
     expect(screen.getByText("model-b")).toBeInTheDocument();
+    // Help text must mention the three in-scope fields and exclude cache_read.
+    // The help paragraph splits field names into <code> children, so use a
+    // function matcher that joins the element's full text content. Radix
+    // Dialog renders the (closed) dialog in the DOM, so use getAllByText.
+    const helpText = (content: string, element: Element | null) => {
+      if (!element) return false;
+      const fullText = (element.textContent ?? "").replace(/\s+/g, " ");
+      return (
+        fullText.includes("cache_read_input_tokens") &&
+        fullText.includes("不参与折扣") &&
+        fullText.includes("input_tokens") &&
+        fullText.includes("cache_creation_input_tokens") &&
+        fullText.includes("output_tokens")
+      );
+    };
+    expect(screen.getAllByText(helpText).length).toBeGreaterThanOrEqual(1);
   });
 
   it("shows an existing override badge", () => {
@@ -99,5 +115,36 @@ describe("DiscountsPage", () => {
     await waitFor(() => {
       expect(mutate).toHaveBeenCalledWith({ coefficient: 0.5 });
     });
+  });
+
+  it("shows the same field-scope hint in the per-model dialog", async () => {
+    (tc.useTokenCoefficients as any).mockReturnValue({
+      data: {
+        globalCoefficient: 1.0,
+        globalMeta: { coefficient: 1.0, updatedAt: new Date().toISOString(), updatedByUsername: "admin" },
+        overrides: [],
+      },
+      isLoading: false,
+    });
+    renderWithQuery(<DiscountsPage />);
+    const user = userEvent.setup();
+    // Open the per-model override dialog (button label is "设置覆盖" when none)
+    await user.click(screen.getAllByRole("button", { name: /设置覆盖/ })[0]);
+    // The dialog carries the same help text (split across <code> children).
+    // Radix Dialog always renders the content in the DOM, so two matches are
+    // expected: one for the global help paragraph, one for the dialog body.
+    const dialogHelpText = (content: string, element: Element | null) => {
+      if (!element) return false;
+      const fullText = (element.textContent ?? "").replace(/\s+/g, " ");
+      return (
+        fullText.includes("cache_read_input_tokens") &&
+        fullText.includes("不参与折扣") &&
+        fullText.includes("input_tokens") &&
+        fullText.includes("cache_creation_input_tokens") &&
+        fullText.includes("output_tokens")
+      );
+    };
+    const matches = await screen.findAllByText(dialogHelpText);
+    expect(matches.length).toBeGreaterThanOrEqual(1);
   });
 });
