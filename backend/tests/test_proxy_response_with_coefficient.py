@@ -137,9 +137,10 @@ async def test_response_usage_is_adjusted():
     assert r.status_code == 200
     body = r.text
 
-    # message_start usage: input 100*0.5=50, cache_read 80*0.5=40, cache_creation 20*0.5=10
+    # message_start usage: input 100*0.5=50, cache_creation 20*0.5=10;
+    # cache_read is pass-through: 80 stays 80
     assert '"input_tokens":50' in body
-    assert '"cache_read_input_tokens":40' in body
+    assert '"cache_read_input_tokens":80' in body
     assert '"cache_creation_input_tokens":10' in body
     # message_delta: output 7*0.5=3.5 -> ceil=4
     assert '"output_tokens":4' in body
@@ -168,6 +169,6 @@ async def test_pending_billing_stores_adjusted_values(setup_db):
         pb = result.scalar_one_or_none()
         assert pb is not None, "expected a pending_billing row to be written"
         assert pb.input_tokens == 50
-        assert pb.cache_read_tokens == 40
+        assert pb.cache_read_tokens == 80   # pass-through: raw upstream value
         assert pb.cache_creation_tokens == 10
         assert pb.output_tokens == 4
