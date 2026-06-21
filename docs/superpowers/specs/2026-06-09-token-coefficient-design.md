@@ -5,7 +5,9 @@
 
 ## Summary
 
-Let admin multiply the `input_tokens` / `cache_read_input_tokens` / `cache_creation_input_tokens` / `output_tokens` values returned to API clients (and used for billing) by a single coefficient in `(0, 1]`. Apply globally by default, with optional per-model overrides. Used to grant token discounts without touching upstream integration or per-model pricing.
+Let admin multiply the `input_tokens` / `cache_creation_input_tokens` / `output_tokens` values returned to API clients (and used for billing) by a single coefficient in `(0, 1]`. Apply globally by default, with optional per-model overrides. Used to grant token discounts without touching upstream integration or per-model pricing.
+
+**Note (2026-06-21):** `cache_read_input_tokens` is **not** discounted — it is passed through at the raw upstream value. See [`2026-06-21-token-coefficient-cache-read-passthrough-design.md`](2026-06-21-token-coefficient-cache-read-passthrough-design.md) for the rationale and behaviour change.
 
 ## Goals
 
@@ -17,7 +19,7 @@ Let admin multiply the `input_tokens` / `cache_read_input_tokens` / `cache_creat
 
 ## Non-Goals
 
-- Per-token-type coefficients (input vs cache_read vs output) — single coefficient covers all four fields.
+- Per-token-type coefficients — single coefficient covers all three discounted fields. (Per the 2026-06-21 delta spec, `cache_read_input_tokens` is excluded from the discount; this is a scope narrowing, not a per-field coefficient knob.)
 - Per-user / per-user-group coefficients — out of scope.
 - Charging the user the full amount while only showing a discount in the response — out of scope; we apply it consistently to both.
 - Returning the original (un-adjusted) values anywhere in the response — the client only ever sees the adjusted values.
@@ -174,7 +176,7 @@ def apply_coefficient(
         )
     return AdjustedUsage(
         input_tokens=math.ceil(input_tokens * coefficient),
-        cache_read_tokens=math.ceil(cache_read_tokens * coefficient),
+        cache_read_tokens=cache_read_tokens,  # pass-through: cache read not discounted
         cache_creation_tokens=math.ceil(cache_creation_tokens * coefficient),
         output_tokens=math.ceil(output_tokens * coefficient),
     )
@@ -187,7 +189,6 @@ from typing import Iterable, Tuple
 
 USAGE_FIELDS = (
     "input_tokens",
-    "cache_read_input_tokens",
     "cache_creation_input_tokens",
     "output_tokens",
 )
@@ -249,7 +250,8 @@ async for chunk in provider_instance.stream_response(provider_body, request_id=.
     if _remap_model:
         chunk = chunk.replace(_provider_model, _original_model)
 
-    # NEW: rewrite usage in the chunk before yielding to the client
+    # NEW: rewrite usage in the chunk before yielding to the client.
+    # cache_read_input_tokens is left at its raw upstream value (no discount).
     yield _apply_coefficient_to_sse_event(chunk, coefficient)
 ```
 
@@ -379,7 +381,7 @@ The existing `/admin` middleware already protects the route. Add a sidebar link 
 ## Out-of-Scope (Future)
 
 - Coefficient > 1 (markup for premium SKs) — easy to add by relaxing the validator.
-- Per-token-type coefficient — would extend the row to 4 floats or add separate fields.
+- Per-token-type coefficient — would extend the row to 3 floats or add separate fields. (See 2026-06-21 delta spec for the cache_read exclusion, which is a scope narrowing rather than a per-field coefficient system.)
 - Per-user / per-user-group coefficient — needs a join through `users` or `user_groups`.
 - Caching with TTL instead of invalidate-on-write.
 - Audit log of coefficient changes (table already records `updated_by` and `updated_at`; a dedicated `audit_log` row could capture old → new).
