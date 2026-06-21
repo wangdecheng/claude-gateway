@@ -1,9 +1,14 @@
 """Token coefficient (discount) config — global default + per-model override.
 
-A single coefficient in (0, 1] is applied to input / cache_read / cache_creation /
-output tokens. The coefficient is applied to the API response (SSE usage fields)
-and to the PendingBilling write (so downstream RequestLog / BillingRecord /
-UsageRecord all see the adjusted values).
+A single coefficient in (0, 1] is applied to three of the four Anthropic token
+fields — input / cache_creation / output. The fourth field, ``cache_read_input_tokens``,
+is NOT discounted; it is passed through at the raw upstream value. See
+:mod:`app.services.billing.token_coefficient` and the 2026-06-21 delta spec for
+the rationale (upstream providers already discount cache reads heavily).
+
+The coefficient is applied to the API response (SSE usage fields) and to the
+PendingBilling write (so downstream RequestLog / BillingRecord / UsageRecord
+all see the adjusted values).
 """
 
 from datetime import datetime
