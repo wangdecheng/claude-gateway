@@ -113,7 +113,6 @@ def test_apply_coefficient_cache_read_passthrough():
 
 def test_apply_coefficient_cache_read_passthrough_at_various_coefficients():
     """cache_read passes through for any coefficient in (0, 1]."""
-    import pytest
     from app.services.billing.token_coefficient import apply_coefficient
 
     for coef in (0.1, 0.33, 0.5, 0.99, 1.0):
