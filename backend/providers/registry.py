@@ -30,9 +30,19 @@ def _create_minimax(config: ProviderConfig, settings: Settings) -> BaseProvider:
     )
 
 
+def _create_xunfei(config: ProviderConfig, settings: Settings) -> BaseProvider:
+    from providers.xunfei import XunfeiProvider
+
+    return XunfeiProvider(
+        config,
+        cache_creation_max_input_multiplier=settings.xunfei_cache_creation_max_input_multiplier,
+    )
+
+
 PROVIDER_FACTORIES: dict[str, ProviderFactory] = {
     "deepseek": _create_deepseek,
     "minimax": _create_minimax,
+    "xunfei": _create_xunfei,
 }
 
 
@@ -59,6 +69,7 @@ def build_provider_config(
         log_raw_sse_events=s.log_raw_sse_events,
         log_deepseek_usage=s.log_deepseek_usage,
         log_minimax_usage=s.log_minimax_usage,
+        log_xunfei_usage=s.log_xunfei_usage,
         log_api_error_tracebacks=s.log_api_error_tracebacks,
     )
 
