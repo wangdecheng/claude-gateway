@@ -39,6 +39,12 @@ SEED_PROVIDERS = [
         "api_base_url": "https://api.rightcodes.com",
         "multiplier": 1.2,
     },
+    {
+        "name": "Xunfei",
+        "channel_name": "讯飞集成平台",
+        "api_base_url": "https://cn.morbuke.com",
+        "multiplier": 1.2,
+    },
 ]
 
 SEED_MODELS = [
@@ -81,6 +87,8 @@ SEED_ROUTES = [
     ("claude-opus-4-8", "Anthropic", "claude-opus-4-8-20250501", True),
     ("claude-sonnet-4-6", "Anthropic", "claude-sonnet-4-6-20250501", True),
     ("claude-haiku-4-5", "Anthropic", "claude-haiku-4-5-20251001", True),
+    # Xunfei 备用渠道（claude-opus-4-8 → astron-code-latest）
+    ("claude-opus-4-8", "Xunfei", "astron-code-latest", False),
     # Native OpenAI models
     ("gpt-4o", "OpenAI", "gpt-4o", True),
     ("gpt-4o-mini", "OpenAI", "gpt-4o-mini", True),
