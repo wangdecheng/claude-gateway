@@ -119,6 +119,12 @@ class Settings(BaseSettings):
         default=5, ge=1, validation_alias="MINIMAX_CACHE_CREATION_MAX_INPUT_MULTIPLIER"
     )
 
+    # ==================== Xunfei ====================
+    xunfei_api_key: str = Field(default="", validation_alias="XUNFEI_API_KEY")
+    xunfei_cache_creation_max_input_multiplier: int = Field(
+        default=5, ge=1, validation_alias="XUNFEI_CACHE_CREATION_MAX_INPUT_MULTIPLIER"
+    )
+
     # ==================== Model Routing ====================
     model: str = "deepseek/deepseek-chat"
 
@@ -156,6 +162,7 @@ class Settings(BaseSettings):
     log_raw_sse_events: bool = Field(default=False, validation_alias="LOG_RAW_SSE_EVENTS")
     log_deepseek_usage: bool = Field(default=False, validation_alias="LOG_DEEPSEEK_USAGE")
     log_minimax_usage: bool = Field(default=False, validation_alias="LOG_MINIMAX_USAGE")
+    log_xunfei_usage: bool = Field(default=False, validation_alias="LOG_XUNFEI_USAGE")
     log_api_error_tracebacks: bool = Field(
         default=False, validation_alias="LOG_API_ERROR_TRACEBACKS"
     )
