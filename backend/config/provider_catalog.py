@@ -10,6 +10,7 @@ TransportType = Literal["openai_chat", "anthropic_messages"]
 DEEPSEEK_ANTHROPIC_DEFAULT_BASE = "https://api.deepseek.com/anthropic"
 DEEPSEEK_DEFAULT_BASE = DEEPSEEK_ANTHROPIC_DEFAULT_BASE
 MINIMAX_DEFAULT_BASE = "https://api.minimaxi.com/anthropic"
+XUNFEI_DEFAULT_BASE = "https://cn.morbuke.com"
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +46,15 @@ PROVIDER_CATALOG: dict[str, ProviderDescriptor] = {
         ),
         credential_attr="minimax_api_key",
         default_base_url=MINIMAX_DEFAULT_BASE,
+        capabilities=("chat", "streaming", "tools", "thinking", "native_anthropic"),
+    ),
+    "xunfei": ProviderDescriptor(
+        provider_id="xunfei",
+        transport_type="anthropic_messages",
+        credential_env="XUNFEI_API_KEY",
+        credential_url=None,
+        credential_attr="xunfei_api_key",
+        default_base_url=XUNFEI_DEFAULT_BASE,
         capabilities=("chat", "streaming", "tools", "thinking", "native_anthropic"),
     ),
 }
