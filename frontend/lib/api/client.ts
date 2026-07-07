@@ -54,5 +54,10 @@ export async function apiClient<T = unknown>(
     });
   }
 
+  // 204 No Content — nothing to parse, return undefined
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
   return response.json();
 }
