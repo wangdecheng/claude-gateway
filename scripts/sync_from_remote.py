@@ -64,10 +64,9 @@ DEFAULT_REMOTE_PG_DB = "high_api"
 DEFAULT_TABLES = [
     "providers",
     "provider_keys",
-    "channels",
     "models",
-    "model_provider_routes",
-    "token_coefficients",
+    "model_providers",
+    "token_coefficient_configs",
 ]
 
 
@@ -473,7 +472,7 @@ async def main_async(args: argparse.Namespace) -> int:
         )
 
         await wipe_local_providers()
-        print("[sync] local providers wiped (FK cascade cleared provider_keys + channels)")
+        print("[sync] local config tables wiped in reverse FK order")
 
         # providers — must come first; sets up provider_ids remap
         if "providers" in parsed:
