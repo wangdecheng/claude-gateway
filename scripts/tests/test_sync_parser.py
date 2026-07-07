@@ -91,6 +91,18 @@ INSERT INTO models VALUES (2, 'claude-opus-4-8');
     assert parsed["models"][1][1] == "claude-opus-4-8"
 
 
+def test_parse_insert_line_with_schema_qualified_table():
+    """Real pg_dump emits `INSERT INTO public.providers VALUES (...)` — schema prefix must be stripped."""
+    table, values = parse_insert_line(
+        "INSERT INTO public.providers VALUES (5, 'MiniMax', 'main', 1.0, "
+        "'https://api.minimaxi.com', 'Authorization', '', "
+        "'openai-chat-completions', 'active', '2026-07-01 00:00:00+00');"
+    )
+    assert table == "providers"  # not "public.providers"
+    assert values[0] == 5
+    assert values[1] == "MiniMax"
+
+
 def test_parse_dump_ignores_non_insert_lines():
     sql = """
 --

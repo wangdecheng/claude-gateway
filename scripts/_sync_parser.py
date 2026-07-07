@@ -16,7 +16,7 @@ from typing import Any
 
 
 _INSERT_RE = re.compile(
-    r"^INSERT INTO\s+(?P<table>\w+)\s+VALUES\s*\((?P<values>.*)\)\s*;?\s*$",
+    r"^INSERT INTO\s+(?:(?P<schema>\w+)\.)?(?P<table>\w+)\s+VALUES\s*\((?P<values>.*)\)\s*;?\s*$",
     re.IGNORECASE,
 )
 
@@ -69,7 +69,7 @@ def parse_insert_line(line: str) -> tuple[str, list[Any]] | None:
     m = _INSERT_RE.match(line)
     if not m:
         return None
-    table = m.group("table")
+    table = m.group("table")  # Always the unqualified table name; schema prefix (e.g. `public.`) is stripped
     inner = m.group("values")
     values: list[Any] = []
     for match in _VALUE_RE.finditer(inner):
