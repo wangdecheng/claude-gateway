@@ -200,18 +200,14 @@ def build_argparser() -> argparse.ArgumentParser:
 # Column remap tables: which columns in each table need provider_id / model_id
 # substitution, and which column is the PK that gets a fresh local id.
 _COL_REMAP: dict[str, dict] = {
-    "providers":              {"pk": "id", "use_remap": {}},
-    "models":                 {"pk": "id", "use_remap": {}},
-    "provider_keys":          {"pk": "id", "use_remap": {"provider_id": "provider"}},
-    "channels":               {"pk": "id", "use_remap": {
-                                  "provider_id": "provider",
-                                  "model_id": "model",
-                              }},
-    "model_provider_routes":  {"pk": "id", "use_remap": {
-                                  "provider_id": "provider",
-                                  "model_id": "model",
-                              }},
-    "token_coefficients":     {"pk": "id", "use_remap": {"model_id": "model"}},
+    "providers":                 {"pk": "id", "use_remap": {}},
+    "models":                    {"pk": "id", "use_remap": {}},
+    "provider_keys":             {"pk": "id", "use_remap": {"provider_id": "provider"}},
+    "model_providers":           {"pk": "id", "use_remap": {
+                                     "provider_id": "provider",
+                                     "model_id": "model",
+                                 }},
+    "token_coefficient_configs": {"pk": "id", "use_remap": {"model_id": "model"}},
 }
 
 
@@ -489,7 +485,7 @@ async def main_async(args: argparse.Namespace) -> int:
             )
 
         # dependent tables — order matters
-        for t in ("provider_keys", "channels", "model_provider_routes", "token_coefficients"):
+        for t in ("provider_keys", "model_providers", "token_coefficient_configs"):
             if t in parsed:
                 await insert_local_rows(
                     t, parsed[t], remap, report,
