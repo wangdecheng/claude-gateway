@@ -101,3 +101,25 @@ INSERT INTO providers VALUES (1, 'X', 'main', 1.0, 'http://x', 'Authorization', 
     parsed = parse_dump(sql)
     assert "providers" in parsed
     assert len(parsed["providers"]) == 1
+
+
+if __name__ == "__main__":
+    import sys
+    import time
+
+    _start = time.time()
+    _passed = _failed = 0
+    _test_funcs = [
+        (name, obj) for name, obj in sorted(globals().items())
+        if name.startswith("test_") and callable(obj)
+    ]
+    for _name, _fn in _test_funcs:
+        try:
+            _fn()
+            _passed += 1
+        except Exception as _e:
+            _failed += 1
+            print(f"FAIL {_name}: {_e}")
+    _elapsed = time.time() - _start
+    print(f"Ran {len(_test_funcs)} tests in {_elapsed:.2f}s — {'OK' if _failed == 0 else f'FAILED {_failed}'}")
+    sys.exit(0 if _failed == 0 else 1)
