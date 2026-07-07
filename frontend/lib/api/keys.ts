@@ -48,6 +48,24 @@ export function useCreateKey() {
   });
 }
 
+export interface UpdateKeyInput {
+  channelId: number | null; // null = 清除绑定（设为自动）
+}
+
+export function useUpdateKey() {
+  const queryClient = useQueryClient();
+  return useMutation<KeyResponse, ApiClientError, { id: number; data: UpdateKeyInput }>({
+    mutationFn: ({ id, data }) =>
+      apiClient<KeyResponse>(`/keys/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["keys"] });
+    },
+  });
+}
+
 export function useRevokeKey() {
   const queryClient = useQueryClient();
   return useMutation<{ message: string }, ApiClientError, number>({
