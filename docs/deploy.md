@@ -344,7 +344,7 @@ frontend/.env.production                         # 远端独立(不推)
 
 ## 本地 dev 跟远程同步
 
-远程服务器（阿里云 `47.103.206.6`）上的 PostgreSQL 已经跑了一段时间；本地 dev SQLite 里的配置表（`providers` / `provider_keys` / `channels` / `models` / `model_provider_routes` / `token_coefficients`）容易跟远程漂移。
+远程服务器（阿里云 `47.103.206.6`）上的 PostgreSQL 已经跑了一段时间；本地 dev SQLite 里的配置表（`providers` / `provider_keys` / `models` / `model_providers` / `token_coefficient_configs`）容易跟远程漂移。
 
 当远程有新 provider / 渠道 / 模型上线后，想让本地 dev 跟生产对齐：
 
@@ -356,15 +356,16 @@ cd backend && uv run alembic upgrade head
 scripts/sync_from_remote.py
 ```
 
-脚本默认 SSH 进 `root@47.103.206.6` 用 `~/ai/aliyun-ai01.pem`，在远程（`127.0.0.1:5432`，DB `high_api`）直接跑 `pg_dump --inserts`，把 6 张配置表覆盖到本地 SQLite。
+脚本默认 SSH 进 `root@47.103.206.6` 用 `~/ai/aliyun-ai01.pem`，在远程（`127.0.0.1:5432`，DB `high_api`）直接跑 `pg_dump --inserts`，把 5 张配置表覆盖到本地 SQLite。
 
 **不**会动业务表：`users` / `api_keys` / `payments` / `billing_records` / `request_logs` / `usage_logs` / `redemption_codes` 全部保留本地状态。
 
 **选项**：
 
 - `--dry-run` —— 只 dump + 解析，不写本地
-- `--tables providers,channels` —— 只同步指定表
-- `--ssh-host user@host` / `--ssh-key /path` / `--remote-pg-container pg1` —— 覆盖默认连接
+- `--tables providers,model_providers` —— 只同步指定表
+- `--ssh-host user@host` / `--ssh-key /path` —— 覆盖 SSH
+- `--remote-pg-host` / `--remote-pg-port` / `--remote-pg-user` / `--remote-pg-password` / `--remote-pg-db` —— 覆盖 PG 连接
 
 `provider_keys.key_encrypted`（AES-256-GCM ciphertext）原样写入，本地有相同的 `UPSTREAM_KEY_ENCRYPTION_KEY` 就能解密。前提：远程和本地的 `UPSTREAM_KEY_ENCRYPTION_KEY` 必须一致。
 
@@ -372,5 +373,5 @@ scripts/sync_from_remote.py
 
 - `0` —— 全部成功
 - `1` —— 有行被跳过（FK 失败等），看报告
-- `2` —— 有行失败，或数据冲突（如 `name+channel_name` 重复）
+- `2` —— 有行失败，或数据冲突
 ```
