@@ -2,9 +2,9 @@
 """sync_from_remote.py — Pull platform-config tables from remote PG into local SQLite.
 
 This is a one-shot developer tool, not part of the runtime. It is safe to
-re-run: it wipes the local config tables (providers / provider_keys /
-channels / models / model_provider_routes / token_coefficients) and
-re-fills them from a fresh pg_dump over SSH.
+re-run: it wipes the 5 local config tables (providers / provider_keys /
+models / model_providers / token_coefficient_configs) and re-fills them
+from a fresh pg_dump over SSH.
 
 User data (users, api_keys, payments, billing_records, request_logs,
 usage_logs, redemption_codes, pending_billing) is NEVER touched.
@@ -61,13 +61,23 @@ DEFAULT_REMOTE_PG_PORT = "5432"
 DEFAULT_REMOTE_PG_USER = "high_api"
 DEFAULT_REMOTE_PG_PASSWORD = "high_api_dev"
 DEFAULT_REMOTE_PG_DB = "high_api"
+
+# Each entry: (table_name, column-remap-config). The config describes which
+# column is the PK (gets a fresh local id) and which columns need provider_id
+# / model_id substitution from the IdRemap. Single source of truth — both
+# argparse default and the insert logic read from here.
 DEFAULT_TABLES = [
-    "providers",
-    "provider_keys",
-    "models",
-    "model_providers",
-    "token_coefficient_configs",
+    ("providers",                 {"pk": "id", "use_remap": {}}),
+    ("provider_keys",             {"pk": "id", "use_remap": {"provider_id": "provider"}}),
+    ("models",                    {"pk": "id", "use_remap": {}}),
+    ("model_providers",           {"pk": "id", "use_remap": {
+                                       "provider_id": "provider",
+                                       "model_id": "model",
+                                   }}),
+    ("token_coefficient_configs", {"pk": "id", "use_remap": {"model_id": "model"}}),
 ]
+
+_DEFAULT_TABLE_NAMES = [t for t, _ in DEFAULT_TABLES]
 
 
 def dump_remote_tables(
@@ -178,8 +188,8 @@ def build_argparser() -> argparse.ArgumentParser:
     )
     p.add_argument("--dry-run", action="store_true",
                    help="Dump + parse only; do not modify local DB.")
-    p.add_argument("--tables", default=",".join(DEFAULT_TABLES),
-                   help=f"Comma-separated tables (default: {','.join(DEFAULT_TABLES)})")
+    p.add_argument("--tables", default=",".join(_DEFAULT_TABLE_NAMES),
+                   help=f"Comma-separated tables (default: {','.join(_DEFAULT_TABLE_NAMES)})")
     p.add_argument("--ssh-host", default=os.environ.get("DEPLOY_REMOTE", DEFAULT_SSH_HOST))
     p.add_argument("--ssh-key", default=os.environ.get("DEPLOY_SSH_KEY", DEFAULT_SSH_KEY))
     p.add_argument("--remote-pg-host",
@@ -197,18 +207,8 @@ def build_argparser() -> argparse.ArgumentParser:
 
 # ── Async DB layer (Task 4) ───────────────────────────────────────────
 
-# Column remap tables: which columns in each table need provider_id / model_id
-# substitution, and which column is the PK that gets a fresh local id.
-_COL_REMAP: dict[str, dict] = {
-    "providers":                 {"pk": "id", "use_remap": {}},
-    "models":                    {"pk": "id", "use_remap": {}},
-    "provider_keys":             {"pk": "id", "use_remap": {"provider_id": "provider"}},
-    "model_providers":           {"pk": "id", "use_remap": {
-                                     "provider_id": "provider",
-                                     "model_id": "model",
-                                 }},
-    "token_coefficient_configs": {"pk": "id", "use_remap": {"model_id": "model"}},
-}
+# Derived from DEFAULT_TABLES — single source of truth.
+_COL_REMAP: dict[str, dict] = {name: cfg for name, cfg in DEFAULT_TABLES}
 
 
 async def collect_local_max_ids() -> dict[str, int]:
@@ -220,7 +220,7 @@ async def collect_local_max_ids() -> dict[str, int]:
     engine, session_factory = create_async_engine_and_sessionmaker(settings.database_url)
     result: dict[str, int] = {}
     async with engine.begin() as conn:
-        for table in DEFAULT_TABLES:
+        for table in _DEFAULT_TABLE_NAMES:
             try:
                 row = await conn.execute(text(f"SELECT COALESCE(MAX(id), 0) FROM {table}"))
                 result[table] = int(row.scalar_one())
@@ -246,7 +246,7 @@ async def wipe_local_providers() -> None:
     from app.database import create_async_engine_and_sessionmaker
 
     engine, _ = create_async_engine_and_sessionmaker(settings.database_url)
-    for table in reversed(DEFAULT_TABLES):
+    for table in reversed(_DEFAULT_TABLE_NAMES):
         try:
             async with engine.begin() as conn:
                 await conn.execute(text(f"DELETE FROM {table}"))
@@ -410,7 +410,7 @@ async def reset_sqlite_sequences() -> None:
     engine, _ = create_async_engine_and_sessionmaker(settings.database_url)
     try:
         async with engine.begin() as conn:
-            for table in DEFAULT_TABLES:
+            for table in _DEFAULT_TABLE_NAMES:
                 # Re-set seq to current MAX(id) for each table
                 await conn.execute(text(
                     f"UPDATE sqlite_sequence SET seq = (SELECT MAX(id) FROM {table}) "
