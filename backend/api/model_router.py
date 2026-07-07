@@ -187,6 +187,8 @@ class ModelRouter:
             AppException(400, MODEL_NOT_IN_CHANNEL) if the model is not on the channel.
             AppException(500, CHANNEL_UNAVAILABLE) if the provider is inactive.
         """
+        from sqlalchemy import select
+
         from app.exceptions import AppException
         from app.models.model import Model
         from app.models.model_provider_route import ModelProviderRoute

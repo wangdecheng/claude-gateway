@@ -182,6 +182,35 @@ async def test_proxy_canonicalizes_minimax_provider_name():
 
 
 @pytest.mark.asyncio
+async def test_proxy_routes_channel_bound_api_key():
+    fake_provider = FakeProvider()
+    fake_registry = FakeRegistry(fake_provider)
+    app.state.provider_registry = fake_registry
+
+    async with app.state.db_session_factory() as db:
+        provider = (await db.execute(select(Provider))).scalars().first()
+        api_key = (await db.execute(select(ApiKey))).scalars().first()
+        api_key.channel_id = provider.id
+        await db.commit()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/v1/messages",
+            headers={"anthropic-auth-token": RAW_CLIENT_KEY},
+            json={
+                "model": "claude-opus-4-8",
+                "max_tokens": 16,
+                "messages": [{"role": "user", "content": "OK"}],
+            },
+        )
+
+    assert resp.status_code == 200
+    assert fake_registry.seen_provider_id == "deepseek"
+    assert fake_provider.seen_model == "deepseek/deepseekV4-pro"
+
+
+@pytest.mark.asyncio
 async def test_proxy_releases_request_db_transaction_before_streaming():
     fake_provider = FakeProvider()
     fake_registry = FakeRegistry(fake_provider)
