@@ -44,3 +44,6 @@ build/
 # Misc
 *.tmp
 .gstack/
+
+# sync_from_remote.py temporary dumps
+claude-sync-dump-*.sql
