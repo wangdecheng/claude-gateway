@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions import AppException
 from app.models.api_key import ApiKey
+from app.models.provider import Provider
 from app.models.user import User
 
 
@@ -63,3 +64,38 @@ async def revoke_api_key(db: AsyncSession, user: User, key_id: int) -> None:
 
     api_key.status = "revoked"
     await db.commit()
+
+
+async def update_api_key(
+    db: AsyncSession,
+    user: User,
+    key_id: int,
+    *,
+    channel_id: int | None,
+) -> ApiKey:
+    """Update an existing active key's bound channel.
+
+    channel_id=None clears the binding (back to 'auto, by model default').
+    A positive channel_id switches the binding; the provider must be active.
+    """
+    result = await db.execute(select(ApiKey).where(ApiKey.id == key_id, ApiKey.user_id == user.id))
+    api_key = result.scalar_one_or_none()
+    if not api_key:
+        raise AppException(status_code=404, error="密钥不存在", code="KEY_NOT_FOUND")
+    if api_key.status != "active":
+        raise AppException(status_code=400, error="密钥已撤销", code="KEY_ALREADY_REVOKED")
+
+    if channel_id is not None:
+        p = await db.execute(select(Provider).where(Provider.id == channel_id))
+        provider = p.scalar_one_or_none()
+        if not provider or provider.status != "active":
+            raise AppException(
+                status_code=400, error="选择的渠道不可用", code="CHANNEL_UNAVAILABLE"
+            )
+        api_key.channel_id = channel_id
+    else:
+        api_key.channel_id = None
+
+    await db.commit()
+    await db.refresh(api_key)
+    return api_key

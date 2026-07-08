@@ -7,9 +7,19 @@ from app.dependencies import get_current_user
 from app.exceptions import AppException
 from app.models.provider import Provider
 from app.models.user import User
-from app.schemas.api_key import CreateKeyRequest, CreateKeyResponse, KeyResponse
+from app.schemas.api_key import (
+    CreateKeyRequest,
+    CreateKeyResponse,
+    KeyResponse,
+    UpdateKeyRequest,
+)
 from app.schemas.common import ErrorResponse
-from app.services.api_key_service import create_api_key, list_api_keys, revoke_api_key
+from app.services.api_key_service import (
+    create_api_key,
+    list_api_keys,
+    revoke_api_key,
+    update_api_key,
+)
 
 router = APIRouter(prefix="/api/keys", tags=["keys"])
 
@@ -32,9 +42,7 @@ async def create_key(
     p = await db.execute(select(Provider).where(Provider.id == body.channel_id))
     provider = p.scalar_one_or_none()
     if not provider or provider.status != "active":
-        raise AppException(
-            status_code=400, error="选择的渠道不可用", code="CHANNEL_UNAVAILABLE"
-        )
+        raise AppException(status_code=400, error="选择的渠道不可用", code="CHANNEL_UNAVAILABLE")
 
     api_key, raw_key = await create_api_key(
         db, user=user, name=body.name, channel_id=body.channel_id
@@ -83,6 +91,38 @@ async def list_keys(
         }
         for k in keys
     ]
+
+
+@router.patch(
+    "/{key_id}",
+    response_model=KeyResponse,
+    responses={
+        404: {"model": ErrorResponse, "description": "Key not found"},
+        400: {"model": ErrorResponse, "description": "Key revoked or channel unavailable"},
+    },
+)
+async def update_key(
+    key_id: int,
+    body: UpdateKeyRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    api_key = await update_api_key(db, user=user, key_id=key_id, channel_id=body.channel_id)
+    channel_name = None
+    if api_key.channel_id is not None:
+        p = await db.execute(select(Provider).where(Provider.id == api_key.channel_id))
+        provider = p.scalar_one_or_none()
+        channel_name = provider.channel_name if provider else None
+    return {
+        "id": api_key.id,
+        "name": api_key.name,
+        "keyPrefix": api_key.key_prefix,
+        "status": api_key.status,
+        "createdAt": api_key.created_at,
+        "lastUsedAt": api_key.last_used_at,
+        "channelId": api_key.channel_id,
+        "channelName": channel_name,
+    }
 
 
 @router.delete(

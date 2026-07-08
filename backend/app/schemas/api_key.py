@@ -26,3 +26,15 @@ class KeyResponse(BaseModel):
 
 class CreateKeyResponse(KeyResponse):
     raw_key: str = Field(..., alias="rawKey")
+
+
+class UpdateKeyRequest(BaseModel):
+    """Schema for updating an existing key's bound channel.
+
+    channelId is required: a positive int switches the binding, null clears it
+    (back to 'auto, by model default').
+    """
+
+    channel_id: int | None = Field(..., alias="channelId")
+
+    model_config = ConfigDict(populate_by_name=True)
