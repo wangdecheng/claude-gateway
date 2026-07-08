@@ -28,9 +28,6 @@ from providers.defaults import XUNFEI_DEFAULT_BASE
 
 @dataclass
 class _XunfeiNativeSseState(NativeSseBlockPolicyState):
-    # 合成 cache_read 用 key=input_tokens；合成 cache_creation 用 key=(input_tokens, cache_read)
-    synthetic_cache_read: dict[int, int] = field(default_factory=dict)
-    synthetic_cache_creation: dict[tuple[int, int], int] = field(default_factory=dict)
     cache_creation_max_input_multiplier: int = 5
     request_id: str | None = None
     claude_session_id: str | None = None
@@ -52,10 +49,7 @@ def _synthetic_cache_creation_tokens(
     multiplier: int,
     seed: str,
 ) -> int:
-    """沿用 minimax 同款算法（pure function，无 state）。
-
-    >>> 该函数本身不读 state；同请求内一致性由 _fill_xunfei_usage_cache 维护。
-    """
+    """沿用 minimax 同款算法（pure function，无 state）。"""
     max_multiplier = max(1, multiplier)
     if input_tokens <= 0:
         return 0
@@ -129,22 +123,17 @@ def _fill_xunfei_usage_cache(
     upstream_cache_read = _usage_int(usage.get("cache_read_input_tokens"))
     upstream_cache_creation = _usage_int(usage.get("cache_creation_input_tokens"))
 
-    # 1. cache_read：上游非零 -> 透传；上游为 0 -> 合成（同 seed 一致）
+    # 1. cache_read：上游非零 -> 透传；上游为 0 -> 合成
     if upstream_cache_read > 0:
         cache_read = upstream_cache_read
-    elif input_tokens in state.synthetic_cache_read:
-        cache_read = state.synthetic_cache_read[input_tokens]
     else:
         cache_read = _synthetic_cache_read_tokens(input_tokens=input_tokens, seed=seed)
-        if input_tokens > 0:
-            state.synthetic_cache_read[input_tokens] = cache_read
 
-    # 2. cache_creation：上游非零 -> 透传；上游为 0 -> minimax 算法（同 seed 一致）
-    creation_cache_key = (input_tokens, cache_read)
+    # 2. cache_creation：上游非零 -> 透传；cache_read=0 -> input_tokens；其余 -> minimax 算法
     if upstream_cache_creation > 0:
         cache_creation = upstream_cache_creation
-    elif creation_cache_key in state.synthetic_cache_creation:
-        cache_creation = state.synthetic_cache_creation[creation_cache_key]
+    elif upstream_cache_read == 0:
+        cache_creation = input_tokens
     else:
         cache_creation = _synthetic_cache_creation_tokens(
             input_tokens=input_tokens,
@@ -152,7 +141,6 @@ def _fill_xunfei_usage_cache(
             multiplier=state.cache_creation_max_input_multiplier,
             seed=seed,
         )
-        state.synthetic_cache_creation[creation_cache_key] = cache_creation
 
     usage["cache_read_input_tokens"] = cache_read
     usage["cache_creation_input_tokens"] = cache_creation

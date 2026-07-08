@@ -107,10 +107,8 @@ def test_fill_synthesizes_cache_read_when_zero() -> None:
     )
     # cache_read 应被合成（input_tokens × [20, 100]）
     assert 100 * 20 <= usage["cache_read_input_tokens"] <= 100 * 100
-    # cache_creation 沿用 minimax 算法：cache_read > input 走 else 分支
-    # 创建区间 [input*0.5, input*max_multiplier] = [50, 500]
-    creation = usage["cache_creation_input_tokens"]
-    assert 50 <= creation <= 500
+    # cache_read=0 -> cache_creation = input_tokens
+    assert usage["cache_creation_input_tokens"] == 100
 
 
 def test_fill_is_stable_within_same_request() -> None:
@@ -192,7 +190,7 @@ def test_normalize_synthesizes_cache_in_message_start() -> None:
     new_payload = json.loads(lines[0][len("data: ") :])
     usage = new_payload["message"]["usage"]
     assert 500 * 20 <= usage["cache_read_input_tokens"] <= 500 * 100
-    assert usage["cache_creation_input_tokens"] >= 1
+    assert usage["cache_creation_input_tokens"] == 500
 
 
 # ---------- message.model override ----------
