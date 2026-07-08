@@ -24,11 +24,13 @@ def _make_state(
     log_usage: bool = False,
     request_id: str | None = "req-1",
     claude_session_id: str | None = "sess-1",
+    original_model: str | None = "claude-opus-4-8",
 ) -> _XunfeiNativeSseState:
     return _XunfeiNativeSseState(
         cache_creation_max_input_multiplier=multiplier,
         request_id=request_id,
         claude_session_id=claude_session_id,
+        original_model=original_model,
         log_usage=log_usage,
     )
 
@@ -44,8 +46,7 @@ def test_synthetic_cache_read_is_20_to_100_times_input() -> None:
     input_tokens = 100
 
     samples = [
-        _synthetic_cache_read_tokens(input_tokens=input_tokens, seed=f"seed-{i}")
-        for i in range(64)
+        _synthetic_cache_read_tokens(input_tokens=input_tokens, seed=f"seed-{i}") for i in range(64)
     ]
 
     for value in samples:
@@ -63,10 +64,7 @@ def test_synthetic_cache_read_stable_per_request() -> None:
 
 def test_synthetic_cache_read_varies_across_requests() -> None:
     """不同 seed 应该至少出现两个不同的值（跨请求随机）"""
-    values = {
-        _synthetic_cache_read_tokens(input_tokens=1000, seed=f"seed-{i}")
-        for i in range(64)
-    }
+    values = {_synthetic_cache_read_tokens(input_tokens=1000, seed=f"seed-{i}") for i in range(64)}
     assert len(values) > 1  # 至少 2 个不同的倍数
 
 
@@ -195,3 +193,76 @@ def test_normalize_synthesizes_cache_in_message_start() -> None:
     usage = new_payload["message"]["usage"]
     assert 500 * 20 <= usage["cache_read_input_tokens"] <= 500 * 100
     assert usage["cache_creation_input_tokens"] >= 1
+
+
+# ---------- message.model override ----------
+
+
+def test_normalize_overrides_message_model_with_original_model() -> None:
+    """讯飞上游在 message_start 中返回自己的模型名（如 astron-code-latest），
+    必须改写为用户最初请求的 Claude 模型名，否则 Claude Code 会按错误模型计费/判断能力。"""
+    state = _make_state(original_model="claude-opus-4-8")
+    payload = {
+        "type": "message_start",
+        "message": {
+            "id": "msg-xunfei-2",
+            "model": "astron-code-latest",  # 讯飞上游回写的上游模型名
+            "usage": {
+                "input_tokens": 100,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
+                "output_tokens": 0,
+            },
+        },
+    }
+    event = format_native_sse_event("message_start", json.dumps(payload))
+    transformed = _normalize_xunfei_usage_event(event, state)
+    assert transformed is not None
+
+    lines = [line for line in transformed.split("\n") if line.startswith("data: ")]
+    assert len(lines) == 1
+    new_payload = json.loads(lines[0][len("data: ") :])
+    assert new_payload["message"]["model"] == "claude-opus-4-8"
+
+
+def test_normalize_does_not_touch_model_when_original_model_unset() -> None:
+    """没传 original_model 时不应修改 model 字段（向后兼容）。"""
+    state = _make_state(original_model=None)
+    payload = {
+        "type": "message_start",
+        "message": {
+            "id": "msg-xunfei-3",
+            "model": "astron-code-latest",
+            "usage": {
+                "input_tokens": 100,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
+                "output_tokens": 0,
+            },
+        },
+    }
+    event = format_native_sse_event("message_start", json.dumps(payload))
+    transformed = _normalize_xunfei_usage_event(event, state)
+    assert transformed is not None
+
+    lines = [line for line in transformed.split("\n") if line.startswith("data: ")]
+    new_payload = json.loads(lines[0][len("data: ") :])
+    assert new_payload["message"]["model"] == "astron-code-latest"
+
+
+def test_normalize_does_not_touch_model_on_non_message_start_events() -> None:
+    """仅 message_start 事件改写 model，其它事件保持原样。"""
+    state = _make_state(original_model="claude-opus-4-8")
+    payload = {
+        "type": "message_delta",
+        "usage": {"output_tokens": 7},
+    }
+    event = format_native_sse_event("message_delta", json.dumps(payload))
+    transformed = _normalize_xunfei_usage_event(event, state)
+    assert transformed is not None
+
+    lines = [line for line in transformed.split("\n") if line.startswith("data: ")]
+    new_payload = json.loads(lines[0][len("data: ") :])
+    # message_delta 没有 message 字段，保持原样
+    assert "model" not in new_payload
+    assert new_payload["type"] == "message_delta"

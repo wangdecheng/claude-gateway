@@ -188,9 +188,7 @@ async def create_message(
         raise AppException(status_code=500, error="上游提供商不可用", code="PROVIDER_UNAVAILABLE")
 
     # ── 4. Get upstream API key from key pool ─────────────────
-    upstream_api_key = await _get_active_upstream_key(
-        db, provider.id, channel_id=provider.id
-    )
+    upstream_api_key = await _get_active_upstream_key(db, provider.id, channel_id=provider.id)
     if not upstream_api_key:
         raise AppException(status_code=500, error="上游服务配置错误", code="UPSTREAM_CONFIG_ERROR")
 
@@ -215,7 +213,16 @@ async def create_message(
         api_key=upstream_api_key,
         base_url=provider.api_base_url or None,
     )
-    provider_body = body.model_copy(update={"model": routed.provider_model}, deep=True)
+    provider_body = body.model_copy(
+        update={
+            "model": routed.provider_model,
+            # 把用户最初请求的 Claude 模型名带给 provider，让 SSE message_start
+            # 中上游回写的模型名（如讯飞的 astron-code-latest）能被改写回原始名。
+            "original_model": body.model,
+            "resolved_provider_model": routed.provider_model,
+        },
+        deep=True,
+    )
 
     # ── 7. Store provider on request.state for api/routes.py resolution ──
     request.state.active_provider = provider_instance
@@ -285,6 +292,7 @@ async def create_message(
             )
             try:
                 from app.services.billing.pending import write_pending_billing
+
                 await write_pending_billing(
                     db,
                     request_id=uuid.uuid4(),
@@ -304,7 +312,8 @@ async def create_message(
                 await db.rollback()
                 logger.exception(
                     "Failed to write pending_billing for user=%d model=%s",
-                    user_id, body.model,
+                    user_id,
+                    body.model,
                 )
 
     # Release the request-scoped transaction before the long-lived stream starts;

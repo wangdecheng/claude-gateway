@@ -34,6 +34,10 @@ class _XunfeiNativeSseState(NativeSseBlockPolicyState):
     cache_creation_max_input_multiplier: int = 5
     request_id: str | None = None
     claude_session_id: str | None = None
+    # 用户最初请求的 Claude 模型名。讯飞上游会在 message_start 中回写自己的模型名
+    # （如 astron-code-latest），_normalize_xunfei_usage_event 据此改写回去，
+    # 否则 Claude Code 会按错误模型判断能力/计费。
+    original_model: str | None = None
     log_usage: bool = False
 
 
@@ -192,6 +196,10 @@ def _normalize_xunfei_usage_event(event: str, state: _XunfeiNativeSseState) -> s
             location="message.usage",
             message_id=message_id,
         )
+        # 讯飞上游回写的 model 是它自己的模型名（如 astron-code-latest），
+        # 必须改写为用户最初请求的 Claude 模型名，否则 Claude Code 会按错误模型处理。
+        if event_name == "message_start" and state.original_model:
+            message["model"] = state.original_model
 
     _fill_xunfei_usage_cache(
         payload.get("usage"),
@@ -221,6 +229,7 @@ class XunfeiProvider(AnthropicMessagesTransport):
             cache_creation_max_input_multiplier=self._cache_creation_max_input_multiplier,
             request_id=getattr(request, "gateway_request_id", None),
             claude_session_id=getattr(request, "claude_session_id", None),
+            original_model=getattr(request, "original_model", None),
             log_usage=self._config.log_xunfei_usage,
         )
 
