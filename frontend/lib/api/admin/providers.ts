@@ -132,13 +132,28 @@ export function useAddProviderKeys() {
   });
 }
 
-export function useRevokeProviderKey() {
+export function useDisableProviderKey() {
   const queryClient = useQueryClient();
 
   return useMutation<void, ApiClientError, { providerId: number; keyId: number }>({
     mutationFn: ({ providerId, keyId }) =>
       apiClient<void>(`/admin/providers/${providerId}/keys/${keyId}`, {
         method: "DELETE",
+      }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "providers", variables.providerId, "keys"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "providers"] });
+    },
+  });
+}
+
+export function useEnableProviderKey() {
+  const queryClient = useQueryClient();
+
+  return useMutation<void, ApiClientError, { providerId: number; keyId: number }>({
+    mutationFn: ({ providerId, keyId }) =>
+      apiClient<void>(`/admin/providers/${providerId}/keys/${keyId}/enable`, {
+        method: "PATCH",
       }),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["admin", "providers", variables.providerId, "keys"] });

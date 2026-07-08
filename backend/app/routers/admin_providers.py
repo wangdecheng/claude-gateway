@@ -8,7 +8,8 @@ Endpoints:
   PATCH  /api/admin/providers/{id}/status   — toggle active / inactive
   GET    /api/admin/providers/{id}/keys     — list keys (masked)
   POST   /api/admin/providers/{id}/keys     — add keys
-  DELETE /api/admin/providers/{id}/keys/{key_id} — revoke a key
+  DELETE /api/admin/providers/{id}/keys/{key_id} — disable a key
+  PATCH  /api/admin/providers/{id}/keys/{key_id}/enable — re-enable a disabled key
 
 All endpoints require admin authentication.
 """
@@ -174,9 +175,22 @@ async def revoke_provider_key(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Revoke (soft-delete) a provider key. Irreversible."""
+    """Disable a provider key."""
     await provider_service.revoke_provider_key(db, key_id)
     await db.commit()
+
+
+@router.patch("/{provider_id}/keys/{key_id}/enable", status_code=204)
+async def enable_provider_key(
+    provider_id: int,
+    key_id: int,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Re-enable a previously disabled provider key."""
+    await provider_service.enable_provider_key(db, key_id)
+    await db.commit()
+
 
 @router.delete("/{provider_id}", response_model=DeleteResponse)
 async def delete_provider(

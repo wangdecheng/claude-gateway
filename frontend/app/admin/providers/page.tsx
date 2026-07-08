@@ -23,7 +23,8 @@ import {
   useToggleProviderStatus,
   useProviderKeys,
   useAddProviderKeys,
-  useRevokeProviderKey,
+  useDisableProviderKey,
+  useEnableProviderKey,
   useDeleteProvider,
   type AdminProviderItem,
   type ProviderCreateInput,
@@ -324,11 +325,12 @@ function KeyManager({
 }) {
   const { data: keys, isLoading, error } = useProviderKeys(providerId);
   const addKeysMutation = useAddProviderKeys();
-  const revokeMutation = useRevokeProviderKey();
+  const disableMutation = useDisableProviderKey();
+  const enableMutation = useEnableProviderKey();
 
   const [newKeys, setNewKeys] = useState("");
   const [adding, setAdding] = useState(false);
-  const [revokeConfirm, setRevokeConfirm] = useState<ProviderKeyItem | null>(null);
+  const [disableConfirm, setDisableConfirm] = useState<ProviderKeyItem | null>(null);
 
   const handleAddKeys = async () => {
     const keyList = newKeys
@@ -346,14 +348,25 @@ function KeyManager({
     }
   };
 
-  const handleRevoke = async () => {
-    if (!revokeConfirm) return;
+  const handleDisable = async () => {
+    if (!disableConfirm) return;
     try {
-      await revokeMutation.mutateAsync({
+      await disableMutation.mutateAsync({
         providerId,
-        keyId: revokeConfirm.id,
+        keyId: disableConfirm.id,
       });
-      setRevokeConfirm(null);
+      setDisableConfirm(null);
+    } catch {
+      // handled by TanStack Query
+    }
+  };
+
+  const handleEnable = async (key: ProviderKeyItem) => {
+    try {
+      await enableMutation.mutateAsync({
+        providerId,
+        keyId: key.id,
+      });
     } catch {
       // handled by TanStack Query
     }
@@ -401,22 +414,31 @@ function KeyManager({
                   </td>
                   <td className="px-3 py-2">
                     <Badge variant={k.status === "active" ? "success" : "muted"}>
-                      {k.status === "active" ? "可用" : "已移除"}
+                      {k.status === "active" ? "可用" : "已禁用"}
                     </Badge>
                   </td>
                   <td className="px-3 py-2 text-xs text-neutral-text-secondary">
                     {new Date(k.createdAt).toLocaleString("zh-CN")}
                   </td>
                   <td className="px-3 py-2 text-right">
-                    {k.status === "active" && (
+                    {k.status === "active" ? (
                       <Button
                         variant="ghost"
                         size="sm"
                         className="text-red-500 hover:text-red-600"
-                        onClick={() => setRevokeConfirm(k)}
+                        onClick={() => setDisableConfirm(k)}
                       >
-                        <Trash2 className="mr-1 h-3 w-3" />
-                        移除
+                        禁用
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-green-600 hover:text-green-700"
+                        onClick={() => handleEnable(k)}
+                        disabled={enableMutation.isPending}
+                      >
+                        启用
                       </Button>
                     )}
                   </td>
@@ -468,37 +490,37 @@ function KeyManager({
         </Button>
       )}
 
-      {/* Revoke confirmation dialog */}
+      {/* Disable confirmation dialog */}
       <Dialog
-        open={revokeConfirm !== null}
-        onOpenChange={(open) => !open && setRevokeConfirm(null)}
+        open={disableConfirm !== null}
+        onOpenChange={(open) => !open && setDisableConfirm(null)}
       >
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
-            <DialogTitle>移除 Key</DialogTitle>
+            <DialogTitle>禁用 Key</DialogTitle>
             <DialogDescription>
-              确定要移除此 Key 吗？该操作不可撤销，移除后将立即停止用于 API 转发。
+              确定要禁用此 Key 吗？禁用后将立即停止用于 API 转发，之后可以重新启用。
             </DialogDescription>
           </DialogHeader>
-          {revokeConfirm && (
+          {disableConfirm && (
             <div className="rounded-md bg-slate-100 p-3 font-mono text-sm">
-              {revokeConfirm.keyPrefix}
+              {disableConfirm.keyPrefix}
             </div>
           )}
           <DialogFooter>
             <Button
               variant="secondary"
-              onClick={() => setRevokeConfirm(null)}
-              disabled={revokeMutation.isPending}
+              onClick={() => setDisableConfirm(null)}
+              disabled={disableMutation.isPending}
             >
               取消
             </Button>
             <Button
               variant="destructive"
-              onClick={handleRevoke}
-              disabled={revokeMutation.isPending}
+              onClick={handleDisable}
+              disabled={disableMutation.isPending}
             >
-              {revokeMutation.isPending ? "移除中..." : "确认移除"}
+              {disableMutation.isPending ? "禁用中..." : "确认禁用"}
             </Button>
           </DialogFooter>
         </DialogContent>

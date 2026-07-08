@@ -323,13 +323,36 @@ async def revoke_provider_key(db: AsyncSession, key_id: int) -> ProviderKey:
     if key.status == "revoked":
         raise AppException(
             status_code=400,
-            error="该 Key 已被移除",
+            error="该 Key 已被禁用",
             code="PROVIDER_KEY_ALREADY_REVOKED",
         )
 
     key.status = "revoked"
     await db.flush()
     logger.info("ProviderKey id=%d revoked", key_id)
+    return key
+
+
+async def enable_provider_key(db: AsyncSession, key_id: int) -> ProviderKey:
+    """Re-enable a previously revoked provider key."""
+    result = await db.execute(select(ProviderKey).where(ProviderKey.id == key_id))
+    key = result.scalar_one_or_none()
+    if not key:
+        raise AppException(
+            status_code=404,
+            error="Key 不存在",
+            code="PROVIDER_KEY_NOT_FOUND",
+        )
+    if key.status == "active":
+        raise AppException(
+            status_code=400,
+            error="该 Key 已是启用状态",
+            code="PROVIDER_KEY_ALREADY_ACTIVE",
+        )
+
+    key.status = "active"
+    await db.flush()
+    logger.info("ProviderKey id=%d enabled", key_id)
     return key
 
 
