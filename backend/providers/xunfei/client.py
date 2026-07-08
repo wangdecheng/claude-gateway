@@ -2,14 +2,16 @@
 
 讯飞集成平台: https://cn.morbuke.com
 上游 SSE usage 中 cache_creation/cache_read 恒为 0，本文件实现合成:
-- cache_read_input_tokens = input_tokens × (20..100) 倍
-- cache_creation_input_tokens 沿用 minimax 算法
+- session 首次出现（15min TTL）：cache_read=0, cache_creation=input_tokens
+- 已有 session 时：cache_read = input_tokens × (20..100) 倍
+- 已有 session 时：cache_creation 沿用 minimax 算法
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -24,6 +26,31 @@ from core.anthropic.native_sse_block_policy import (
 from providers.anthropic_messages import AnthropicMessagesTransport
 from providers.base import ProviderConfig
 from providers.defaults import XUNFEI_DEFAULT_BASE
+
+# session 首次出现缓存：session_id → 首次出现时间戳
+# 15 分钟 TTL：超时后重新视为首次出现（cache miss）
+_SESSION_FIRST_SEEN: dict[str, float] = {}
+_SESSION_CACHE_TTL: float = 15 * 60  # 15 minutes
+
+
+def _check_session_first_seen(session_id: str | None) -> bool:
+    """检查 session_id 是否首次出现（或缓存已过期）。
+
+    Returns:
+        True  — 首次出现 / 已过期，本次应视为 cache miss
+        False — 已存在且未过期，cache 命中
+    """
+    if session_id is None:
+        return False
+    now = time.time()
+    # 清理过期条目
+    expired = [sid for sid, ts in _SESSION_FIRST_SEEN.items() if now - ts > _SESSION_CACHE_TTL]
+    for sid in expired:
+        del _SESSION_FIRST_SEEN[sid]
+    if session_id in _SESSION_FIRST_SEEN:
+        return False
+    _SESSION_FIRST_SEEN[session_id] = now
+    return True
 
 
 @dataclass
@@ -67,10 +94,7 @@ def _synthetic_cache_read_tokens(
     input_tokens: int,
     seed: str,
 ) -> int:
-    """合成 cache_read_input_tokens = input_tokens × (20..100) 倍（pure function）。
-
-    >>> 不读 state；同请求内一致性由 _fill_xunfei_usage_cache 调用 state.synthetic_cache_read 维护。
-    """
+    """合成 cache_read_input_tokens = input_tokens × (20..100) 倍（pure function）。"""
     if input_tokens <= 0:
         return 0
     digest = hashlib.blake2s(seed.encode("utf-8"), digest_size=8).digest()
@@ -115,7 +139,8 @@ def _fill_xunfei_usage_cache(
     location: str,
     message_id: str | None,
 ) -> None:
-    """填充 SSE usage 字段：合成缺失的 cache_read/cache_creation，同请求内一致。"""
+    """填充 SSE usage 字段：session 首次出现时 cache_read=0/cache_creation=input_tokens；
+    已有 session 时合成 cache_read 且 cache_creation 走 minimax 算法。"""
     if not isinstance(usage, dict):
         return
 
@@ -123,16 +148,20 @@ def _fill_xunfei_usage_cache(
     upstream_cache_read = _usage_int(usage.get("cache_read_input_tokens"))
     upstream_cache_creation = _usage_int(usage.get("cache_creation_input_tokens"))
 
-    # 1. cache_read：上游非零 -> 透传；上游为 0 -> 合成
+    session_first_seen = _check_session_first_seen(state.claude_session_id)
+
+    # 1. cache_read：上游非零 -> 透传；session 首次出现 -> 0；其余 -> 合成
     if upstream_cache_read > 0:
         cache_read = upstream_cache_read
+    elif session_first_seen:
+        cache_read = 0
     else:
         cache_read = _synthetic_cache_read_tokens(input_tokens=input_tokens, seed=seed)
 
-    # 2. cache_creation：上游非零 -> 透传；cache_read=0 -> input_tokens；其余 -> minimax 算法
+    # 2. cache_creation：上游非零 -> 透传；session 首次出现 -> input_tokens；其余 -> minimax
     if upstream_cache_creation > 0:
         cache_creation = upstream_cache_creation
-    elif upstream_cache_read == 0:
+    elif session_first_seen:
         cache_creation = input_tokens
     else:
         cache_creation = _synthetic_cache_creation_tokens(
