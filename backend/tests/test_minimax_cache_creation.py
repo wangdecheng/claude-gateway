@@ -24,11 +24,13 @@ def _make_state(
     log_usage: bool = False,
     request_id: str | None = "req-1",
     claude_session_id: str | None = "sess-1",
+    original_model: str | None = "claude-opus-4-8",
 ) -> _MiniMaxNativeSseState:
     return _MiniMaxNativeSseState(
         cache_creation_max_input_multiplier=multiplier,
         request_id=request_id,
         claude_session_id=claude_session_id,
+        original_model=original_model,
         log_usage=log_usage,
     )
 
@@ -250,6 +252,78 @@ def test_normalize_returns_input_for_empty_event() -> None:
 
     assert _normalize_minimax_usage_event("", state) == ""
     assert _normalize_minimax_usage_event("event: ping\n\n", state) == "event: ping\n\n"
+
+
+# ---------- message.model override ----------
+
+
+def test_normalize_overrides_message_model_with_original_model() -> None:
+    """MiniMax 上游在 message_start 中返回自己的模型名（如 MiniMax-M1），
+    必须改写为用户最初请求的 Claude 模型名，否则 Claude Code 会按错误模型计费/判断能力。"""
+    state = _make_state(original_model="claude-opus-4-8")
+    payload = {
+        "type": "message_start",
+        "message": {
+            "id": "msg-mm-1",
+            "model": "MiniMax-M1",  # MiniMax 上游回写的上游模型名
+            "usage": {
+                "input_tokens": 100,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
+                "output_tokens": 0,
+            },
+        },
+    }
+    event = format_native_sse_event("message_start", json.dumps(payload))
+    transformed = _normalize_minimax_usage_event(event, state)
+    assert transformed is not None
+
+    _, data_text = _split_event(transformed)
+    out = json.loads(data_text)
+    assert out["message"]["model"] == "claude-opus-4-8"
+
+
+def test_normalize_does_not_touch_model_when_original_model_unset() -> None:
+    """没传 original_model 时不应修改 model 字段（向后兼容）。"""
+    state = _make_state(original_model=None)
+    payload = {
+        "type": "message_start",
+        "message": {
+            "id": "msg-mm-2",
+            "model": "MiniMax-M1",
+            "usage": {
+                "input_tokens": 100,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
+                "output_tokens": 0,
+            },
+        },
+    }
+    event = format_native_sse_event("message_start", json.dumps(payload))
+    transformed = _normalize_minimax_usage_event(event, state)
+    assert transformed is not None
+
+    _, data_text = _split_event(transformed)
+    out = json.loads(data_text)
+    assert out["message"]["model"] == "MiniMax-M1"
+
+
+def test_normalize_does_not_touch_model_on_non_message_start_events() -> None:
+    """仅 message_start 事件改写 model，其它事件保持原样。"""
+    state = _make_state(original_model="claude-opus-4-8")
+    payload = {
+        "type": "message_delta",
+        "usage": {"output_tokens": 7},
+    }
+    event = format_native_sse_event("message_delta", json.dumps(payload))
+    transformed = _normalize_minimax_usage_event(event, state)
+    assert transformed is not None
+
+    _, data_text = _split_event(transformed)
+    out = json.loads(data_text)
+    # message_delta 没有 message 字段，保持原样
+    assert "model" not in out
+    assert out["type"] == "message_delta"
 
 
 def _split_event(event: str) -> tuple[str | None, str]:
