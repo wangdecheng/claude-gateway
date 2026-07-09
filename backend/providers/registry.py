@@ -39,10 +39,22 @@ def _create_glm(config: ProviderConfig, settings: Settings) -> BaseProvider:
     )
 
 
+def _create_volcengine(config: ProviderConfig, settings: Settings) -> BaseProvider:
+    from providers.volcengine import VolcengineProvider
+
+    return VolcengineProvider(
+        config,
+        cache_creation_max_input_multiplier=(
+            settings.volcengine_cache_creation_max_input_multiplier
+        ),
+    )
+
+
 PROVIDER_FACTORIES: dict[str, ProviderFactory] = {
     "deepseek": _create_deepseek,
     "minimax": _create_minimax,
     "glm": _create_glm,
+    "volcengine": _create_volcengine,
 }
 
 
@@ -70,6 +82,7 @@ def build_provider_config(
         log_deepseek_usage=s.log_deepseek_usage,
         log_minimax_usage=s.log_minimax_usage,
         log_glm_usage=s.log_glm_usage,
+        log_volcengine_usage=s.log_volcengine_usage,
         log_api_error_tracebacks=s.log_api_error_tracebacks,
     )
 

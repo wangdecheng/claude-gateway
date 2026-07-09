@@ -36,6 +36,8 @@ async def create_api_key(
         name=name,
         key_prefix=key_prefix,
         key_hash=hash_key(raw_key),
+        # 明文保存一份，让前端能随时复制完整 sk；鉴权走 key_hash。
+        key_plaintext=raw_key,
         status="active",
         channel_id=channel_id,
     )

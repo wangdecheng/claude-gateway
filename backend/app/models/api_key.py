@@ -16,6 +16,8 @@ class ApiKey(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     key_prefix: Mapped[str] = mapped_column(String(10), nullable=False)  # "sk-a1b2c3"
     key_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    # 明文保存 sk，使前端可以随时复制完整 key（鉴权仍走 key_hash）。
+    key_plaintext: Mapped[str | None] = mapped_column(String(64), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

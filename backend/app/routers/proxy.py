@@ -4,6 +4,7 @@ import json
 import logging
 import uuid
 
+from cryptography.exceptions import InvalidTag
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
@@ -141,7 +142,20 @@ async def _get_active_upstream_key(
 
     if not keys:
         return None
-    return decrypt_api_key(keys[0].key_encrypted, provider_id=provider_id)
+    selected_key = keys[0]
+    try:
+        return decrypt_api_key(selected_key.key_encrypted, provider_id=provider_id)
+    except InvalidTag as exc:
+        logger.error(
+            "Failed to decrypt provider key id=%s for provider_id=%s",
+            selected_key.id,
+            provider_id,
+        )
+        raise AppException(
+            status_code=500,
+            error="上游服务配置错误",
+            code="UPSTREAM_CONFIG_ERROR",
+        ) from exc
 
 
 @router.post("/v1/messages")

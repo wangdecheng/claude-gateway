@@ -12,6 +12,8 @@ export interface KeyResponse {
   channelName: string | null;
   createdAt: string;
   lastUsedAt: string | null;
+  // 明文 sk；列表返回中始终存在，方便前端随时复制。
+  rawKey: string;
 }
 
 export interface CreateKeyResponse extends KeyResponse {

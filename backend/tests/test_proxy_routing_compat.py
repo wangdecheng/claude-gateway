@@ -15,11 +15,13 @@ from starlette.responses import StreamingResponse
 
 from api.models.anthropic import MessagesRequest
 from app.database import Base
+from app.exceptions import AppException
 from app.models.api_key import ApiKey
 from app.models.model import Model
 from app.models.model_provider_route import ModelProviderRoute
 from app.models.provider import Provider, ProviderKey
 from app.models.user import User
+from app.routers.proxy import _get_active_upstream_key
 from app.routers.proxy import create_message as proxy_create_message
 from app.services.api_key_service import hash_key
 from app.services.provider_service import encrypt_api_key
@@ -208,6 +210,21 @@ async def test_proxy_routes_channel_bound_api_key():
     assert resp.status_code == 200
     assert fake_registry.seen_provider_id == "deepseek"
     assert fake_provider.seen_model == "deepseek/deepseekV4-pro"
+
+
+@pytest.mark.asyncio
+async def test_proxy_reports_config_error_when_provider_key_cannot_be_decrypted():
+    async with app.state.db_session_factory() as db:
+        provider = (await db.execute(select(Provider))).scalars().first()
+        key = (await db.execute(select(ProviderKey))).scalars().first()
+        key.key_encrypted = encrypt_api_key(RAW_UPSTREAM_KEY, provider_id=provider.id + 1000)
+        await db.commit()
+
+        with pytest.raises(AppException) as exc:
+            await _get_active_upstream_key(db, provider.id, channel_id=provider.id)
+
+    assert exc.value.status_code == 500
+    assert exc.value.code == "UPSTREAM_CONFIG_ERROR"
 
 
 @pytest.mark.asyncio

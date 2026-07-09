@@ -31,6 +31,7 @@ class ProviderConfig(BaseModel):
     log_deepseek_usage: bool = False
     log_minimax_usage: bool = False
     log_glm_usage: bool = False
+    log_volcengine_usage: bool = False
     log_api_error_tracebacks: bool = False
 
 

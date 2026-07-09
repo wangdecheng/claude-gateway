@@ -62,3 +62,30 @@ def test_create_glm_provider_from_registry():
     assert isinstance(provider, GlmProvider)
     assert provider._cache_creation_max_input_multiplier == 7
     assert provider._config.log_glm_usage is True
+
+
+def test_provider_catalog_and_factories_include_volcengine():
+    assert "volcengine" in PROVIDER_CATALOG
+    assert "volcengine" in SUPPORTED_PROVIDER_IDS
+    assert "volcengine" in PROVIDER_FACTORIES
+
+
+def test_create_volcengine_provider_from_registry():
+    from providers.volcengine import VolcengineProvider
+
+    settings = Settings(
+        _env_file=None,
+        VOLCENGINE_CACHE_CREATION_MAX_INPUT_MULTIPLIER=7,
+        LOG_VOLCENGINE_USAGE=True,
+    )
+
+    provider = create_provider(
+        "volcengine",
+        api_key="test-key",
+        base_url="https://ark.cn-beijing.volces.com/anthropic",
+        settings=settings,
+    )
+
+    assert isinstance(provider, VolcengineProvider)
+    assert provider._cache_creation_max_input_multiplier == 7
+    assert provider._config.log_volcengine_usage is True

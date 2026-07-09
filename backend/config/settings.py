@@ -97,6 +97,9 @@ class Settings(BaseSettings):
     # ==================== App ====================
     app_name: str = Field(default="cloude-gateway", validation_alias="APP_NAME")
     debug: bool = Field(default=True, validation_alias="DEBUG")
+    upstream_key_encryption_key: str = Field(
+        default="", validation_alias="UPSTREAM_KEY_ENCRYPTION_KEY"
+    )
     cors_origins: list[str] = Field(
         default=["http://localhost:3000"], validation_alias="CORS_ORIGINS"
     )
@@ -123,6 +126,12 @@ class Settings(BaseSettings):
     glm_api_key: str = Field(default="", validation_alias="GLM_API_KEY")
     glm_cache_creation_max_input_multiplier: int = Field(
         default=5, ge=1, validation_alias="GLM_CACHE_CREATION_MAX_INPUT_MULTIPLIER"
+    )
+
+    # ==================== Volcengine ====================
+    volcengine_api_key: str = Field(default="", validation_alias="VOLCENGINE_API_KEY")
+    volcengine_cache_creation_max_input_multiplier: int = Field(
+        default=5, ge=1, validation_alias="VOLCENGINE_CACHE_CREATION_MAX_INPUT_MULTIPLIER"
     )
 
     # ==================== Model Routing ====================
@@ -163,6 +172,9 @@ class Settings(BaseSettings):
     log_deepseek_usage: bool = Field(default=False, validation_alias="LOG_DEEPSEEK_USAGE")
     log_minimax_usage: bool = Field(default=False, validation_alias="LOG_MINIMAX_USAGE")
     log_glm_usage: bool = Field(default=False, validation_alias="LOG_GLM_USAGE")
+    log_volcengine_usage: bool = Field(
+        default=False, validation_alias="LOG_VOLCENGINE_USAGE"
+    )
     log_api_error_tracebacks: bool = Field(
         default=False, validation_alias="LOG_API_ERROR_TRACEBACKS"
     )

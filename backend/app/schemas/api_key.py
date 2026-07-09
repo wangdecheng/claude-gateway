@@ -20,11 +20,14 @@ class KeyResponse(BaseModel):
     last_used_at: Optional[datetime] = Field(None, alias="lastUsedAt")
     channel_id: Optional[int] = Field(None, alias="channelId")
     channel_name: Optional[str] = Field(None, alias="channelName")
+    # 明文 sk，供前端展示/复制。Optional 是为了兼容没有该列的历史数据。
+    raw_key: Optional[str] = Field(None, alias="rawKey")
 
     model_config = ConfigDict(populate_by_name=True)
 
 
 class CreateKeyResponse(KeyResponse):
+    # 创建时一定返回；保留覆盖以保证 response_model 校验。
     raw_key: str = Field(..., alias="rawKey")
 
 

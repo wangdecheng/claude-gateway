@@ -19,20 +19,21 @@ export default function KeysPage() {
   const [copied, setCopied] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
 
+  // 给 KeyList 用的回调：成功/失败都走顶部 toast
+  const showToast = (variant: InlineToastVariant, message: string) => {
+    setToast({ variant, message, key: Date.now() });
+  };
+
   const baseUrl = baseUrlData?.baseUrl || "";
   const handleCopyBaseUrl = async () => {
     if (!baseUrl) return;
     const ok = await copyToClipboard(baseUrl);
     if (ok) {
       setCopied(true);
-      setToast({ variant: "success", message: "base_url 已复制到剪贴板", key: Date.now() });
+      showToast("success", "base_url 已复制到剪贴板");
       setTimeout(() => setCopied(false), 3000);
     } else {
-      setToast({
-        variant: "error",
-        message: "复制失败，请手动选择上方 base_url 复制",
-        key: Date.now(),
-      });
+      showToast("error", "复制失败，请手动选择上方 base_url 复制");
     }
   };
 
@@ -63,7 +64,7 @@ export default function KeysPage() {
       )}
 
       <CreateKeyForm />
-      <KeyList />
+      <KeyList onNotify={showToast} />
     </div>
   );
 }

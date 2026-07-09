@@ -88,6 +88,7 @@ async def list_keys(
             "lastUsedAt": k.last_used_at,
             "channelId": k.channel_id,
             "channelName": name_by_id.get(k.channel_id) if k.channel_id else None,
+            "rawKey": k.key_plaintext,
         }
         for k in keys
     ]
@@ -122,6 +123,7 @@ async def update_key(
         "lastUsedAt": api_key.last_used_at,
         "channelId": api_key.channel_id,
         "channelName": channel_name,
+        "rawKey": api_key.key_plaintext,
     }
 
 

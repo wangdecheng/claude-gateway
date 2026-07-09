@@ -53,3 +53,18 @@ export async function copyToClipboard(text: string): Promise<boolean> {
 
   return ok;
 }
+
+/**
+ * Last-resort fallback: pop a native prompt with the text already
+ * selected so the user can Ctrl/Cmd-C even when clipboard APIs
+ * are entirely blocked (e.g. very old browser, strict sandbox).
+ * Returns `true` if the user actually copied (i.e. didn't cancel).
+ */
+export function promptCopyFallback(text: string): boolean {
+  if (typeof window === "undefined") return false;
+  // The native prompt always renders the full text and lets the user
+  // select+copy. There's no return value indicating copy, so we treat
+  // any non-cancel as success.
+  window.prompt("请使用 Ctrl/⌘+C 复制 sk：", text);
+  return true;
+}

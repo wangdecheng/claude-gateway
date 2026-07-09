@@ -5,6 +5,7 @@ from config.provider_catalog import (
     DEEPSEEK_DEFAULT_BASE,
     GLM_DEFAULT_BASE,
     MINIMAX_DEFAULT_BASE,
+    VOLCENGINE_DEFAULT_BASE,
 )
 
 __all__ = (
@@ -12,4 +13,5 @@ __all__ = (
     "DEEPSEEK_DEFAULT_BASE",
     "GLM_DEFAULT_BASE",
     "MINIMAX_DEFAULT_BASE",
+    "VOLCENGINE_DEFAULT_BASE",
 )

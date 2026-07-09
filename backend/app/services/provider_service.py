@@ -42,7 +42,7 @@ def _get_aes_key() -> bytes:
     global _ENCRYPTION_KEY
     if _ENCRYPTION_KEY is not None:
         return _ENCRYPTION_KEY
-    raw = os.environ.get("UPSTREAM_KEY_ENCRYPTION_KEY", "")
+    raw = os.environ.get("UPSTREAM_KEY_ENCRYPTION_KEY", "") or settings.upstream_key_encryption_key
     if not raw:
         if not settings.debug:
             logger.critical(

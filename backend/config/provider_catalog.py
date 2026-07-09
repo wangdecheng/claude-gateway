@@ -11,6 +11,7 @@ DEEPSEEK_ANTHROPIC_DEFAULT_BASE = "https://api.deepseek.com/anthropic"
 DEEPSEEK_DEFAULT_BASE = DEEPSEEK_ANTHROPIC_DEFAULT_BASE
 MINIMAX_DEFAULT_BASE = "https://api.minimaxi.com/anthropic"
 GLM_DEFAULT_BASE = "https://cn.morbuke.com"
+VOLCENGINE_DEFAULT_BASE = "https://ark.cn-beijing.volces.com/anthropic"
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +56,15 @@ PROVIDER_CATALOG: dict[str, ProviderDescriptor] = {
         credential_url=None,
         credential_attr="glm_api_key",
         default_base_url=GLM_DEFAULT_BASE,
+        capabilities=("chat", "streaming", "tools", "thinking", "native_anthropic"),
+    ),
+    "volcengine": ProviderDescriptor(
+        provider_id="volcengine",
+        transport_type="anthropic_messages",
+        credential_env="VOLCENGINE_API_KEY",
+        credential_url="https://console.volcengine.com/ark",
+        credential_attr="volcengine_api_key",
+        default_base_url=VOLCENGINE_DEFAULT_BASE,
         capabilities=("chat", "streaming", "tools", "thinking", "native_anthropic"),
     ),
 }
