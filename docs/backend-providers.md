@@ -6,9 +6,10 @@
 |------|------|
 | Provider 抽象基类 | `backend/providers/base.py` |
 | Provider 注册中心 | `backend/providers/registry.py` |
-| Anthropic Messages 传输层 | `backend/providers/animations_messages.py` |
+| Anthropic Messages 传输层 | `backend/providers/anthropic_messages.py` |
 | DeepSeek 适配器 | `backend/providers/deepseek/client.py` |
-| DeepSeek 请求构建 | `backend/providers/deepseek/request.py` |
+| GLM 适配器 | `backend/providers/glm/client.py` |
+| MiniMax 适配器 | `backend/providers/minimax/client.py` |
 | 速率限制器 | `backend/providers/rate_limit.py` |
 | 错误映射 | `backend/providers/error_mapping.py` |
 | Provider 异常 | `backend/providers/exceptions.py` |
@@ -22,244 +23,254 @@
 ```
 ┌─────────────────────────────────────────────┐
 │            ProviderRegistry                 │
-│  - 工厂注册: {provider_id → factory_fn}     │
-│  - 实例缓存: key = provider_id + sha256(key)│
-│  - build_provider_config()                  │
-│  - create_provider()                        │
+│  - PROVIDER_FACTORIES: {provider_id -> fn}   │
+│  - 实例缓存: key = provider_id:sha256(key)[:16]
+│  - build_provider_config() / create_provider()│
+│  - get() 同步方法 (无 await)                  │
 └──────────────────┬──────────────────────────┘
                    │
                    ▼
 ┌─────────────────────────────────────────────┐
 │           BaseProvider (ABC)                │
-│  + stream_response(request) → SSE stream    │
-│  + list_model_ids() → [str]                 │
+│  + stream_response(request, *, request_id,  │
+│      thinking_enabled) -> AsyncIterator[str] │
+│  + preflight_stream(request)  (build 前校验) │
+│  + list_model_ids() / list_model_infos()     │
 │  + cleanup()                                │
-│  # _build_request_body()                    │
-│  # _request_headers()                       │
-│  # _transform_stream_event()                │
+│  # _build_request_body() / _request_headers()│
+│  # _transform_stream_event(event, state, *)  │
+│  # _new_stream_state(request, *, thinking)   │
 └──────────────────┬──────────────────────────┘
                    │
                    ▼
 ┌─────────────────────────────────────────────┐
 │   AnthropicMessagesTransport(BaseProvider)  │
-│  - SSE 流解析 (line-delimited + event-     │
-│    grouped 两种格式)                         │
-│  - /models 端点查询模型列表                 │
-│  - 错误响应体日志                           │
-│  - 响应式流关闭 (遇到错误时)                │
-└──────────────────┬──────────────────────────┘
-                   │
-                   ▼
-┌─────────────────────────────────────────────┐
-│         DeepSeekProvider                    │
-│  base_url: api.deepseek.com/anthropic       │
-│  auth: x-api-key header                     │
-│  重写: _build_request_body (thinking params)│
-│        _request_headers (x-api-key)         │
-│        _transform_stream_event (usage)      │
-│        _send_model_list_request (OpenAI fmt)│
-└─────────────────────────────────────────────┘
+│  - 原生 Anthropic SSE 流解析                 │
+│  - /v1/models 端点查询模型列表               │
+│  - 错误响应体日志 / 响应式流关闭              │
+└──────┬───────────────┬──────────────┬───────┘
+       ▼               ▼              ▼
+  DeepSeekProvider  GlmProvider   MiniMaxProvider
+  api.deepseek.com  cn.morbuke.com  api.minimaxi.com
+  /anthropic                         /anthropic
+  (均走 Authorization Bearer，均 native Anthropic)
 ```
+
+> 三家 provider 全部继承 `AnthropicMessagesTransport`（原生 Anthropic 兼容），差异在于：模型名回写、usage 合成、缓存 token 计算。
 
 ## 核心接口
 
-### BaseProvider (ABC)
+### BaseProvider (ABC) (`providers/base.py`)
 
 ```python
 class BaseProvider(ABC):
-    config: ProviderConfig  # api_key, base_url, rate_limit, timeouts, ...
+    def __init__(self, config: ProviderConfig): ...
 
     @abstractmethod
-    async def stream_response(self, request_body: dict) -> AsyncIterator[SSEEvent]:
-        """流式转发请求，yield SSE 事件"""
-        ...
+    async def stream_response(
+        self,
+        request: Any,
+        input_tokens: int = 0,
+        *,
+        request_id: str | None = None,
+        thinking_enabled: bool | None = None,
+    ) -> AsyncIterator[str]:
+        """流式转发，yield Anthropic SSE 文本 chunk。"""
+
+    def preflight_stream(self, request, *, thinking_enabled=None) -> None:
+        """流式前 eager 构造上游请求，转换失败抛 InvalidRequestError。"""
 
     @abstractmethod
-    async def list_model_ids(self) -> list[str]:
-        """返回该 provider 支持的模型 ID 列表"""
-        ...
+    async def list_model_ids(self) -> frozenset[str]: ...
+
+    async def list_model_infos(self) -> frozenset[ProviderModelInfo]: ...
 
     @abstractmethod
-    async def cleanup(self) -> None:
-        """释放资源（如关闭 httpx client）"""
-        ...
+    async def cleanup(self) -> None: ...
 
-    # === 可选重写 ===
-    def _build_request_body(self, body: dict) -> dict:
-        """转换请求体（OpenAI ↔ Anthropic 格式）"""
-        ...
-
-    def _request_headers(self) -> dict:
-        """构建鉴权头（Authorization / x-api-key / ...）"""
-        ...
-
-    def _transform_stream_event(self, event: dict) -> dict:
-        """转换流事件格式（如标准化 usage 字段）"""
-        ...
+    # === 子类可重写的钩子 ===
+    def _build_request_body(self, request, *, thinking_enabled=None) -> dict: ...
+    def _request_headers(self) -> dict[str, str]: ...
+    def _transform_stream_event(self, event, state, *, thinking_enabled) -> str | None: ...
+    def _new_stream_state(self, request, *, thinking_enabled) -> Any: ...
+    def _is_thinking_enabled(self, request, thinking_enabled=None) -> bool: ...
 ```
 
-### ProviderConfig
+### ProviderConfig (`providers/base.py`)
 ```python
 class ProviderConfig(BaseModel):
     api_key: str
-    base_url: str
-    rate_limit: int          # 速率限制 (请求/窗口)
-    rate_window: int         # 窗口大小 (秒)
-    max_concurrency: int     # 最大并发数
-    read_timeout: float
-    write_timeout: float
-    connect_timeout: float
-    proxy: str | None
-    log_raw_payloads: bool
-    log_raw_sse_events: bool
+    base_url: str | None = None
+    rate_limit: int | None
+    rate_window: int = 60
+    max_concurrency: int = 5
+    http_read_timeout: float = 300.0
+    http_write_timeout: float = 10.0
+    http_connect_timeout: float = ...
+    enable_thinking: bool = True
+    proxy: str = ""
+    log_raw_sse_events: bool = False
+    log_deepseek_usage: bool = False
+    log_minimax_usage: bool = False
+    log_glm_usage: bool = False
+    log_api_error_tracebacks: bool = False
 ```
 
-### GlobalRateLimiter
+> ⚠️ 旧文档的 `read_timeout`/`write_timeout`/`connect_timeout`/`log_raw_payloads` 字段名已过时，实际前缀是 `http_`，并有 per-provider 的 usage 日志开关。
+
+### GlobalRateLimiter (`providers/rate_limit.py`)
 三层速率控制 + 重试:
-1. **proactive**: 严格滑动窗口 (stored in Redis-compatible memory store)
+1. **proactive**: 滑动窗口限流
 2. **reactive**: 收到 429/5xx 时 block
-3. **concurrency**: asyncio.Semaphore 控制最大并发
+3. **concurrency**: `asyncio.Semaphore` 控最大并发
 4. **execute_with_retry**: 指数退避 + 抖动
 
-## ProviderRegistry 工作流
+## ProviderRegistry 工作流 (`providers/registry.py`)
 
 ```python
-registry = ProviderRegistry(settings)
-provider = await registry.get(
-    provider_id="deepseek",
-    api_key="sk-...",          # 上游 API key
-    base_url="https://..."     # 可选覆盖
+registry = ProviderRegistry(settings)          # app.state.provider_registry
+provider = registry.get(                      # ⚠️ 同步方法，无需 await
+    provider_id="glm",
+    api_key="sk-...",      # 上游 API key (来自 DB 解密)
+    base_url="https://..."  # 可选覆盖
 )
-# registry 内部:
-# 1. 构建复合缓存键: f"{provider_id}:{sha256(api_key)}"
-# 2. 命中缓存 → 返回已有实例
-# 3. 未命中 → 查 PROVIDER_FACTORIES → 调用工厂函数
-# 4. 缓存实例
-# 5. 返回 provider
+# 内部:
+# 1. 缓存键: f"{provider_id}:{sha256(api_key)[:16]}"  (取前 16 字符)
+# 2. 命中 -> 返回已有实例
+# 3. 未命中 -> build_provider_config() -> PROVIDER_FACTORIES[id](config, settings)
+# 4. 缓存实例并返回
+```
+
+工厂表：
+```python
+PROVIDER_FACTORIES = {
+    "deepseek": _create_deepseek,   # 传 deepseek_cache_creation_max_input_multiplier
+    "minimax":   _create_minimax,   # 传 minimax_cache_creation_max_input_multiplier
+    "glm":       _create_glm,       # 传 glm_cache_creation_max_input_multiplier
+}
 ```
 
 ## 速率限制
 
 ```python
 # settings.py 默认值
-PROVIDER_RATE_LIMIT = 40       # 40 请求/窗口
-PROVIDER_RATE_WINDOW = 60      # 60 秒窗口
-PROVIDER_MAX_CONCURRENCY = 5   # 最多 5 并发
+provider_rate_limit = 40       # 40 请求/窗口
+provider_rate_window = 60      # 60 秒窗口
+provider_max_concurrency = 5  # 最多 5 并发
 ```
 
-`execute_with_retry` 的退避策略:
-- 429 Rate Limited: 等待 Retry-After 或 1s × 指数退避
-- 5xx Server Error: 1s × 指数退避 (最多 3 次重试)
-- 连接错误: 0.5s × 指数退避 (最多 2 次重试)
+`execute_with_retry` 退避策略:
+- 429: 等待 Retry-After 或 1s × 指数退避
+- 5xx: 1s × 指数退避 (最多 3 次)
+- 连接错误: 0.5s × 指数退避 (最多 2 次)
+
+## Provider 详情
+
+### DeepSeek
+- Base URL: `https://api.deepseek.com/anthropic`
+- 原生 Anthropic 兼容，`Authorization: Bearer`
+- 调试日志: `LOG_DEEPSEEK_USAGE=true`
+
+### MiniMax
+- Base URL: `https://api.minimaxi.com/anthropic`
+- 原生 Anthropic 兼容，`Authorization: Bearer`
+- 后台 provider 名规范化为 `minimax`（`minimax`/`miniMax`/`MiniMax` 均可）
+- Channel `providerModelId`: 例如 `MiniMax-M3`
+- 调试日志: `LOG_MINIMAX_USAGE=true`
+- **Cache 合成**：MiniMax 上游 cache 字段为 0，provider 层用 minimax 算法合成 `cache_creation`（`low = input × 0.5`，`high = input × max_multiplier`，blake2s seed 哈希取区间值）；GLM 的 cache_creation 在非首次 session 时复用此算法。
+
+### GLM (智谱 GLM)
+- Base URL: `https://cn.morbuke.com`，provider_id `glm`
+- 原生 Anthropic 兼容，`Authorization: Bearer`
+- Channel `providerModelId`: 例如 `claude-opus-4-8`（需在 DB 配置）
+- 调试日志: `LOG_GLM_USAGE=true`
+
+**Cache 合成**（`providers/glm/client.py`，上游 cache 字段恒为 0）：
+
+`_fill_glm_usage_cache()` 按 `message.usage` 和顶层 `payload.usage` 三分支填充：
+
+| 条件 | cache_read | cache_creation |
+|------|-----------|----------------|
+| 上游非零 | 透传 upstream | 透传 upstream |
+| session 首次出现 (15min TTL 内首次) | `0` | `input_tokens` |
+| 已有 session (TTL 内再次) | `input × (20..100)` | minimax 算法 |
+
+- **session 首次出现判定**：`_check_session_first_seen(session_id)` 用进程内 dict `_SESSION_FIRST_SEEN`（key=session_id, value=首次时间戳），15min TTL，过期后重新视为首次（cache miss）。`session_id` 取自 Claude Code 请求头。
+- **合成 cache_read**：`_synthetic_cache_read_tokens` = `input_tokens × (20..100)`（blake2s seed 取 20..100 含 100）。pure function。
+- **合成 cache_creation**：`_synthetic_cache_creation_tokens` 复用 minimax 算法（`low = input×0.5`，`high = input×max_multiplier`，blake2s seed 取区间值）。
+- **seed**：由 `event_name` + `message.id` 拼接，保证同请求内一致、跨请求随机。
+
+**模型名回写**：GLM 上游 `message_start` 会回写自己的模型名（如 `glm-5.2`），`_normalize_glm_usage_event` 据此改写回 `state.original_model`（用户最初请求的 Claude 模型名），否则 Claude Code 会按错误模型判断能力/计费。proxy 的 `_remap_model` 也会在 SSE chunk 文本里替换。
+
+**客户端视角**：客户端永远只看到 `claude-opus-4-8`，看不到 `glm-5.2`。
+
+**Token 折扣**：`TokenCoefficientConfig` 按 model 级配置（`tcs.get_for_model(model.id)`），与 provider 渠道无关。GLM 走 `claude-opus-4-8` 自动继承其系数。系数作用于 input/cache_creation/output，**cache_read 不打折**（透传上游原值）。
 
 ## 新增 Provider 步骤
 
-以添加 OpenAI 直连为例:
+以新增一家原生 Anthropic 兼容 provider 为例：
 
-### 1. 创建适配器 `backend/providers/openai/client.py`
+### 1. 创建适配器 `backend/providers/<name>/client.py`
 ```python
-class OpenAIProvider(BaseProvider):
-    async def stream_response(self, request_body):
-        # 调用 OpenAI /v1/chat/completions with stream=True
+class XxxProvider(AnthropicMessagesTransport):
+    def __init__(self, config, *, cache_creation_max_input_multiplier=5):
+        super().__init__(config, provider_name="XXX", default_base_url=XXX_DEFAULT_BASE)
         ...
-
-    async def list_model_ids(self):
-        # GET /v1/models
-        ...
+    def _new_stream_state(self, request, *, thinking_enabled): ...
+    def _transform_stream_event(self, event, state, *, thinking_enabled): ...
+    def _request_headers(self) -> dict[str, str]: ...
+    async def _send_stream_request(self, body) -> httpx.Response: ...
+    async def _send_model_list_request(self) -> httpx.Response: ...
 ```
 
 ### 2. 注册到 catalog `backend/config/provider_catalog.py`
 ```python
-ProviderDescriptor(
-    id="openai",
-    name="OpenAI Direct",
-    transport="openai-chat-completions",
-    base_url="https://api.openai.com",
-    capabilities=[...],
-)
+"xxx": ProviderDescriptor(
+    provider_id="xxx",
+    transport_type="anthropic_messages",
+    credential_env="XXX_API_KEY",
+    credential_attr="xxx_api_key",
+    default_base_url="https://...",
+    capabilities=("chat", "streaming", "tools", "thinking", "native_anthropic"),
+),
 ```
 
 ### 3. 注册工厂 `backend/providers/registry.py`
 ```python
-PROVIDER_FACTORIES = {
-    "deepseek": lambda config: DeepSeekProvider(config),
-    "openai": lambda config: OpenAIProvider(config),   # 新增
-}
+def _create_xxx(config, settings):
+    return XxxProvider(config, cache_creation_max_input_multiplier=settings.xxx_cache_creation_max_input_multiplier)
+
+PROVIDER_FACTORIES = {"deepseek": ..., "minimax": ..., "glm": ..., "xxx": _create_xxx}
 ```
+（并在 `config/settings.py` 加 `xxx_cache_creation_max_input_multiplier` 等配置项）
 
-### 4. 添加 ORM 适配器类型（如需）
-- `backend/app/models/provider.py`: 确认 `adapter` 字段支持 `"openai-chat-completions"`
-- Seed 数据中插入 OpenAI provider
-
-### 5. 前端 Admin 界面自动支持
-- Provider adapter 下拉框 (admin/providers) 已支持 `openai-chat-completions` 和 `anthropic-messages` 两种类型
-
-## MiniMax
-
-MiniMax 使用原生 Anthropic-compatible Messages 路径，后台供应商名称会被规范化为
-provider id `minimax`。因此供应商名称可以填 `minimax`、`miniMax` 或 `MiniMax`。
-
-后台 Provider 配置:
-
-- API Base URL: `https://api.minimaxi.com/anthropic`
-- Auth Header: `Authorization`
-- Adapter: `anthropic-messages`
-- Channel `providerModelId`: 例如 `MiniMax-M3`
-
-## GLM (智谱 GLM)
-
-智谱 GLM 通过 `https://cn.morbuke.com` 提供原生 Anthropic Messages 兼容 API。注册 provider_id 为 `glm`。
-
-后台 Provider 配置：
-
-- API Base URL: `https://cn.morbuke.com`
-- Auth Header: `Authorization`
-- Adapter: `anthropic-messages`
-- Channel `providerModelId`: 例如 `glm-5.2`（需在 DB 中配置）
-
-### Cache 合成
-
-GLM 上游 SSE `usage.cache_creation_input_tokens` 和 `usage.cache_read_input_tokens` 字段恒为 0。`GlmProvider` 在 provider 层合成：
-
-- `cache_read_input_tokens = input_tokens × (20..100)` 倍（上游为 0 时）
-  - 同请求内一致：`message_start` 与 `message_delta` 返回同一值（用 SSE state 缓存）
-  - 跨请求随机：不同 seed 摇不同倍数
-- `cache_creation_input_tokens`: 沿用 MiniMax 算法（`low = input × 0.5, high = input × max_multiplier` 区间内基于 seed 哈希）
-
-启用调试日志：`LOG_GLM_USAGE=true`。
-
-### 客户端模型
-
-客户端永远只看到 `claude-opus-4-8`，看不到 `glm-5.2`。路由配置中 model `claude-opus-4-8` 映射到上游 `glm-5.2`，proxy 的 `_remap_model` 反向把响应里的 `glm-5.2` 换回 `claude-opus-4-8`。
-
-### Token 折扣
-
-折扣（`TokenCoefficientConfig`）按 model 级配置（`tcs.get_for_model(model.id)`），与 provider 渠道无关。GLM 走 `claude-opus-4-8` 自动继承其全局或 per-model 系数。
+### 4. 前端 / Admin
+- Admin providers 页可填入该 provider，`adapter` 选 `anthropic-messages`
+- DB 配置 `model_providers` 路由：model `claude-opus-4-8` -> provider `xxx` -> provider_model `<上游模型>`
 
 ## 上游密钥安全
 
-- 密钥通过 `provider_service.encrypt_api_key()` 加密存储
-- 加密算法: AES-256-GCM
-- AAD (附加认证数据): `provider_id` (防止密钥跨 provider 复用)
-- 存储格式: base64(encrypted_key)
-- 解密仅在 `get_active_upstream_key()` 调用时进行，用完即弃
-- 前端 admin 界面支持添加/吊销 provider key
+- 加密: AES-256-GCM，AAD = `provider_id`（防跨 provider 复用），密文 base64 存 `provider_keys.key_encrypted`
+- 解密仅在 `_get_active_upstream_key()` 调用时进行（`provider_service.decrypt_api_key`），用完即弃
+- 取池中第一把 active key（`keys[0]`，无轮询/负载均衡）
+- 支持 `channel_keys` 子集：把某 provider 的部分 key 标记为"渠道专用"
+- 前端 admin 支持添加/吊销/重新启用 provider key
 
 ## 常见开发场景
 
 ### 适配新 AI 供应商
-- 如上述 "新增 Provider 步骤"
+- 见上 "新增 Provider 步骤"
 
 ### 修改速率限制策略
-1. `providers/rate_limit.py`: 修改滑动窗口算法或重试策略
-2. `config/settings.py`: 修改默认值 `PROVIDER_RATE_LIMIT` 等
+1. `providers/rate_limit.py`: 滑动窗口 / 重试
+2. `config/settings.py`: 默认值
 
-### 修改流事件格式
-1. 继承 `_transform_stream_event()` 处理特定事件
-2. `providers/anthropic_messages.py`: 如果需要修改传输层行为
+### 修改流事件 / usage 合成
+1. 子类重写 `_transform_stream_event()` + `_new_stream_state()`
+2. 参照 `glm/client.py` 的 `_normalize_glm_usage_event` / `_fill_glm_usage_cache`
 
-### Protocol 转换 (非 Anthropic → Anthropic)
-1. 继承 `BaseProvider` (不用 `AnthropicMessagesTransport`)
+### Protocol 转换 (非 Anthropic -> Anthropic)
+1. 直接继承 `BaseProvider`（不用 `AnthropicMessagesTransport`）
 2. 在 `_build_request_body()` 实现请求格式转换
 3. 在 `_transform_stream_event()` 实现响应事件转换
-4. 参照 `DeepSeekProvider` 的模式
+4. 参照 `DeepSeekProvider` 模式

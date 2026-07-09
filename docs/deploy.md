@@ -96,7 +96,7 @@ npm run dev
 
 - **本机 `.env` ≠ 远端 `.env`**：本地永远用开发密钥（`UPSTREAM_KEY_ENCRYPTION_KEY` 留空 → 自动用 dev 默认），远端是真实的密钥。**部署脚本已通过 `--exclude '.env'` 保护远端 `.env` 永不被覆盖**。但你要在本地能解密远端导出的密文则需要把 `UPSTREAM_KEY_ENCRYPTION_KEY` 同步到本地 `.env`（这种场景只在 §5 跨机导配置时出现）。
 - **数据库里的密文是绑定密钥的**：远端 `provider_keys.key_encrypted` 是用远端 `UPSTREAM_KEY_ENCRYPTION_KEY` 加密的。本机想解出来读 `provider_keys` 必须用同一把 key。普通开发用不到——你通常在 admin UI 里只看到 `key_prefix`（如 `sk-8****fb37`），看不到明文。
-- **不要在本机修改 `provider_keys` / `models` / `providers` / `channel_configs` 想着推到远端**——`bin/deploy.sh` **不碰数据库**。配置同步走 §5 的独立流程。
+- **不要在本机修改 `provider_keys` / `models` / `providers` / `model_providers` 想着推到远端**——`bin/deploy.sh` **不碰数据库**。配置同步走 §5 的独立流程。
 
 ---
 
@@ -147,7 +147,7 @@ ssh -i ~/ai/aliyun-ai01.pem root@47.103.206.6 \
 ssh -i ~/ai/aliyun-ai01.pem root@47.103.206.6 \
   'PGPASSWORD=high_api_dev pg_dump -h 127.0.0.1 -U high_api -d high_api \
      --data-only --no-owner --inserts \
-     -t providers -t provider_keys -t models -t channel_configs -t channel_keys \
+     -t providers -t provider_keys -t models -t model_providers -t channel_keys \
      > /tmp/backup-$(date +%s).sql'
 ```
 
@@ -155,7 +155,7 @@ ssh -i ~/ai/aliyun-ai01.pem root@47.103.206.6 \
 
 ## 5. 数据库配置同步（与代码同步分开）
 
-`bin/deploy.sh` **不同步数据库**。`models` / `providers` / `channel_configs` / `provider_keys` 这些表的增删改需要走单独的流程：
+`bin/deploy.sh` **不同步数据库**。`models` / `providers` / `model_providers` / `provider_keys` 这些表的增删改需要走单独的流程：
 
 1. 在本机 admin UI（`http://localhost:3000/admin/...`）里增删改
 2. 用 `pg_dump` 导出本机相关行

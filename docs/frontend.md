@@ -44,9 +44,13 @@ app/
 │
 └── admin/                        # 管理员页面组 (侧边栏)
     ├── layout.tsx                # 侧边栏 + 角色检查
-    ├── models/page.tsx           # 模型 CRUD (TanStack Table)
-    ├── channels/page.tsx         # 渠道 CRUD
-    └── providers/page.tsx        # Provider + Key Pool 管理
+    ├── page.tsx                  # 管理后台首页
+    ├── models/page.tsx           # 模型 CRUD
+    ├── channels/page.tsx         # 渠道 (model_providers 路由) CRUD
+    ├── providers/page.tsx        # Provider + Key Pool 管理
+    ├── redemption/page.tsx       # 兑换码生成/管理
+    ├── users/page.tsx            # 用户管理
+    └── discounts/page.tsx        # Token 折扣系数 (全局 + per-model)
 ```
 
 ## 认证流程
@@ -54,12 +58,14 @@ app/
 ### Layer 1: Middleware (`middleware.ts`)
 ```
 每个请求 → 匹配路由 pattern → 读取 high_api_session cookie
-  → jose.decodeJwt(token)  // 客户端验证
-  → 公开路径 + 已登录 → 重定向到 /
-  → 受保护路径 + 未登录 → 重定向到 /login
-  → Admin 路径 + 非 admin → 重定向到 /
+  → jose.jwtVerify(token, publicKey, {algorithms:["RS256"]})  // RS256 签名验签
+  -> 公开路径 + 已登录 -> 按 role 重定向 (admin -> /admin, user -> /)
+  -> 受保护路径 + 未登录/验签失败 -> 重定向到 /login (并删 cookie)
+  -> Admin 路径 + 非 admin -> 返回 403 JSON { error: "无权访问" }
   → 注入 X-User-ID, X-User-Role headers
 ```
+
+公钥从 `JWT_PUBLIC_KEY` 环境变量（base64）解码为 PEM，与后端签发用同一密钥对。验签失败即视为未登录。
 
 ### Layer 2: AuthContext (`lib/auth/AuthContext.tsx`)
 ```

@@ -14,7 +14,7 @@
 
 | 场景 | 文档 | 关键入口 |
 |------|------|----------|
-| 代理/计费 (POST /v1/messages) | `docs/backend-proxy.md` | `backend/app/routers/proxy.py`, `billing_service.py` |
+| 代理/计费 (POST /v1/messages) | `docs/backend-proxy.md` | `backend/app/routers/proxy.py`, `app/services/billing/` (异步 pending + worker) |
 | 认证/权限 (JWT, API Key) | `docs/backend-auth.md` | `backend/app/dependencies.py`, `frontend/middleware.ts` |
 | 新增 AI Provider | `docs/backend-providers.md` | `backend/providers/base.py`, `registry.py` |
 | 数据库模型/迁移/种子 | `docs/backend-database.md` | `backend/app/models/`, `backend/alembic/` |
@@ -85,7 +85,7 @@ server.py → api/app.py (factory + lifespan)
   │                             rate_limit.py, deepseek/client.py, exceptions.py
   ├─ config/                    Pydantic Settings, logging
   ├─ core/                      Tracing, Anthropic protocol primitives
-  └─ app/services/              billing_service, auth, payments
+  └─ app/services/              billing/ (compute,pending,settle,worker), auth, payments
 ```
 
 ### Frontend Layers
@@ -115,7 +115,7 @@ components/
 
 **Auth**: Two parallel systems — JWT (HttpOnly cookie `high_api_session`) for UI; API Key (Bearer `sk-...`) for proxy. Frontend middleware verifies JWT with `jose`; backend `get_current_user` reads cookie → fetches user.
 
-**Billing (POST /v1/messages)**: ① Validate API key → `(user, api_key)` ② Resolve model: `Model` → `ChannelConfig` → `Provider` ③ Get random active key from provider key pool ④ Pre-flight: `balance >= 100` (1¥) ⑤ Reserve: `FOR UPDATE` lock, subtract estimate ⑥ Stream SSE response ⑦ Settle: actual token cost, adjust balance, record `RequestLog` + `BillingRecord`. Prices in micro-yuan/1K tokens; billing in fen.
+**Billing (POST /v1/messages)** - **async pending + worker, NOT pre-reserve**: ① Validate API key -> `(user, api_key)` ② Resolve model via `ModelRouter` -> `Model` -> `ModelProviderRoute` (table `model_providers`) -> `Provider` ③ Token coefficient (discount) via `TokenCoefficientService.get_for_model()` ④ Pick upstream key from `provider_keys` pool (AES-256-GCM, `channel_keys` subset if bound) ⑤ Pre-flight: `balance >= 10` (¥0.10), **no reservation** ⑥ Stream SSE response, rewriting each chunk in-flight (provider model name -> original Claude name, apply coefficient) and accumulating usage ⑦ `finally`: write `pending_billings` row (`request_id` UNIQUE) ⑧ `BillingWorker` (asyncio task, every 30s, `FOR UPDATE SKIP LOCKED`) settles each row: `compute_cost` -> `FOR UPDATE` user -> `balance -= cost` -> write `RequestLog` + `BillingRecord` + `UsageRecord`; retries 3x then `dead`. Prices in micro-yuan/1K tokens; billing in fen. **Note**: `app/services/billing_service.py` is LEGACY (synchronous, retired `ChannelConfig`); active path is `app/services/billing/{compute,pending,settle,worker,token_coefficient}.py`.
 
 **Database**: SQLAlchemy async (asyncpg/aiosqlite). Tables auto-created on startup; Alembic for production migrations. Seed data inserted idempotently. `FOR UPDATE` locking on balance; UNIQUE on `billing_records.request_log_id` (anti-double-charge) and `payment_records.transaction_id` (idempotency).
 

@@ -46,7 +46,7 @@ async def test_anthropic_health():
 import os
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
 # 也可以覆盖其他 env
-# os.environ["JWT_SECRET"] = "test-secret"
+# os.environ["JWT_PRIVATE_KEY"] = "<base64 PEM>"  # RS256；与 JWT_PUBLIC_KEY 配对
 
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
