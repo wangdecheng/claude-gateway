@@ -194,7 +194,7 @@ export function ProviderEditForm({
               <Input
                 id="multiplier"
                 type="number"
-                step="0.1"
+                step="0.01"
                 min="0.01"
                 {...register("multiplier", {
                   required: "请输入倍率",
