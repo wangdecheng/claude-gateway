@@ -1,6 +1,6 @@
-"""Xunfei provider implementation (native Anthropic-compatible Messages).
+"""GLM provider implementation (native Anthropic-compatible Messages).
 
-讯飞集成平台: https://cn.morbuke.com
+智谱 GLM: https://cn.morbuke.com
 上游 SSE usage 中 cache_creation/cache_read 恒为 0，本文件实现合成:
 - session 首次出现（15min TTL）：cache_read=0, cache_creation=input_tokens
 - 已有 session 时：cache_read = input_tokens × (20..100) 倍
@@ -25,7 +25,7 @@ from core.anthropic.native_sse_block_policy import (
 )
 from providers.anthropic_messages import AnthropicMessagesTransport
 from providers.base import ProviderConfig
-from providers.defaults import XUNFEI_DEFAULT_BASE
+from providers.defaults import GLM_DEFAULT_BASE
 
 # session 首次出现缓存：session_id → 首次出现时间戳
 # 15 分钟 TTL：超时后重新视为首次出现（cache miss）
@@ -54,12 +54,12 @@ def _check_session_first_seen(session_id: str | None) -> bool:
 
 
 @dataclass
-class _XunfeiNativeSseState(NativeSseBlockPolicyState):
+class _GlmNativeSseState(NativeSseBlockPolicyState):
     cache_creation_max_input_multiplier: int = 5
     request_id: str | None = None
     claude_session_id: str | None = None
-    # 用户最初请求的 Claude 模型名。讯飞上游会在 message_start 中回写自己的模型名
-    # （如 astron-code-latest），_normalize_xunfei_usage_event 据此改写回去，
+    # 用户最初请求的 Claude 模型名。GLM 上游会在 message_start 中回写自己的模型名
+    # （如 glm-5.2），_normalize_glm_usage_event 据此改写回去，
     # 否则 Claude Code 会按错误模型判断能力/计费。
     original_model: str | None = None
     log_usage: bool = False
@@ -102,7 +102,7 @@ def _synthetic_cache_read_tokens(
     return input_tokens * multiplier
 
 
-def _log_xunfei_usage(
+def _log_glm_usage(
     *,
     event_name: str,
     location: str,
@@ -114,7 +114,7 @@ def _log_xunfei_usage(
     cache_creation_tokens: int,
 ) -> None:
     logger.debug(
-        "XUNFEI_USAGE: event={} request_id={} claude_session_id={} "
+        "GLM_USAGE: event={} request_id={} claude_session_id={} "
         "location={} message_id={} input_tokens={} "
         "cache_read_input_tokens={} cache_creation_input_tokens={} "
         "ratio=cache_read/input={:.2f}",
@@ -130,10 +130,10 @@ def _log_xunfei_usage(
     )
 
 
-def _fill_xunfei_usage_cache(
+def _fill_glm_usage_cache(
     usage: Any,
     *,
-    state: _XunfeiNativeSseState,
+    state: _GlmNativeSseState,
     seed: str,
     event_name: str,
     location: str,
@@ -175,7 +175,7 @@ def _fill_xunfei_usage_cache(
     usage["cache_creation_input_tokens"] = cache_creation
 
     if state.log_usage:
-        _log_xunfei_usage(
+        _log_glm_usage(
             event_name=event_name,
             location=location,
             request_id=state.request_id,
@@ -187,7 +187,7 @@ def _fill_xunfei_usage_cache(
         )
 
 
-def _normalize_xunfei_usage_event(event: str, state: _XunfeiNativeSseState) -> str:
+def _normalize_glm_usage_event(event: str, state: _GlmNativeSseState) -> str:
     event_name, data_text = parse_native_sse_event(event)
     if not event_name or not data_text:
         return event
@@ -205,7 +205,7 @@ def _normalize_xunfei_usage_event(event: str, state: _XunfeiNativeSseState) -> s
         if isinstance(raw_message_id, str):
             message_id = raw_message_id
             seed_parts.append(raw_message_id)
-        _fill_xunfei_usage_cache(
+        _fill_glm_usage_cache(
             message.get("usage"),
             state=state,
             seed=":".join(seed_parts),
@@ -213,12 +213,12 @@ def _normalize_xunfei_usage_event(event: str, state: _XunfeiNativeSseState) -> s
             location="message.usage",
             message_id=message_id,
         )
-        # 讯飞上游回写的 model 是它自己的模型名（如 astron-code-latest），
+        # GLM 上游回写的 model 是它自己的模型名（如 glm-5.2），
         # 必须改写为用户最初请求的 Claude 模型名，否则 Claude Code 会按错误模型处理。
         if event_name == "message_start" and state.original_model:
             message["model"] = state.original_model
 
-    _fill_xunfei_usage_cache(
+    _fill_glm_usage_cache(
         payload.get("usage"),
         state=state,
         seed=":".join(seed_parts),
@@ -230,24 +230,24 @@ def _normalize_xunfei_usage_event(event: str, state: _XunfeiNativeSseState) -> s
     return format_native_sse_event(event_name, json.dumps(payload))
 
 
-class XunfeiProvider(AnthropicMessagesTransport):
-    """讯飞集成平台 using ``https://cn.morbuke.com`` (native Anthropic-compatible)."""
+class GlmProvider(AnthropicMessagesTransport):
+    """智谱 GLM using ``https://cn.morbuke.com`` (native Anthropic-compatible)."""
 
     def __init__(self, config: ProviderConfig, *, cache_creation_max_input_multiplier: int = 5):
         super().__init__(
             config,
-            provider_name="XUNFEI",
-            default_base_url=XUNFEI_DEFAULT_BASE,
+            provider_name="GLM",
+            default_base_url=GLM_DEFAULT_BASE,
         )
         self._cache_creation_max_input_multiplier = max(1, cache_creation_max_input_multiplier)
 
     def _new_stream_state(self, request: Any, *, thinking_enabled: bool) -> Any:
-        return _XunfeiNativeSseState(
+        return _GlmNativeSseState(
             cache_creation_max_input_multiplier=self._cache_creation_max_input_multiplier,
             request_id=getattr(request, "gateway_request_id", None),
             claude_session_id=getattr(request, "claude_session_id", None),
             original_model=getattr(request, "original_model", None),
-            log_usage=self._config.log_xunfei_usage,
+            log_usage=self._config.log_glm_usage,
         )
 
     def _transform_stream_event(
@@ -262,9 +262,9 @@ class XunfeiProvider(AnthropicMessagesTransport):
             state,
             thinking_enabled=thinking_enabled,
         )
-        if transformed is None or not isinstance(state, _XunfeiNativeSseState):
+        if transformed is None or not isinstance(state, _GlmNativeSseState):
             return transformed
-        return _normalize_xunfei_usage_event(transformed, state)
+        return _normalize_glm_usage_event(transformed, state)
 
     def _request_headers(self) -> dict[str, str]:
         return {

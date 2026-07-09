@@ -37,28 +37,28 @@ def test_create_minimax_provider_from_registry():
     assert provider._config.log_minimax_usage is True
 
 
-def test_provider_catalog_and_factories_include_xunfei():
-    assert "xunfei" in PROVIDER_CATALOG
-    assert "xunfei" in SUPPORTED_PROVIDER_IDS
-    assert "xunfei" in PROVIDER_FACTORIES
+def test_provider_catalog_and_factories_include_glm():
+    assert "glm" in PROVIDER_CATALOG
+    assert "glm" in SUPPORTED_PROVIDER_IDS
+    assert "glm" in PROVIDER_FACTORIES
 
 
-def test_create_xunfei_provider_from_registry():
-    from providers.xunfei import XunfeiProvider
+def test_create_glm_provider_from_registry():
+    from providers.glm import GlmProvider
 
     settings = Settings(
         _env_file=None,
-        XUNFEI_CACHE_CREATION_MAX_INPUT_MULTIPLIER=7,
-        LOG_XUNFEI_USAGE=True,
+        GLM_CACHE_CREATION_MAX_INPUT_MULTIPLIER=7,
+        LOG_GLM_USAGE=True,
     )
 
     provider = create_provider(
-        "xunfei",
+        "glm",
         api_key="test-key",
         base_url="https://cn.morbuke.com",
         settings=settings,
     )
 
-    assert isinstance(provider, XunfeiProvider)
+    assert isinstance(provider, GlmProvider)
     assert provider._cache_creation_max_input_multiplier == 7
-    assert provider._config.log_xunfei_usage is True
+    assert provider._config.log_glm_usage is True

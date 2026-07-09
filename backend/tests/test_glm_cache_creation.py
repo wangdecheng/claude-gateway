@@ -1,4 +1,4 @@
-"""Tests for the synthetic cache_read/cache_creation logic used by Xunfei."""
+"""Tests for the synthetic cache_read/cache_creation logic used by GLM."""
 
 from __future__ import annotations
 
@@ -10,12 +10,12 @@ from typing import Any
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.anthropic.native_sse_block_policy import format_native_sse_event
-from providers.xunfei.client import (
+from providers.glm.client import (
     _SESSION_FIRST_SEEN,
-    _fill_xunfei_usage_cache,
-    _normalize_xunfei_usage_event,
+    _fill_glm_usage_cache,
+    _normalize_glm_usage_event,
     _synthetic_cache_read_tokens,
-    _XunfeiNativeSseState,
+    _GlmNativeSseState,
 )
 
 
@@ -26,8 +26,8 @@ def _make_state(
     request_id: str | None = "req-1",
     claude_session_id: str | None = "sess-1",
     original_model: str | None = "claude-opus-4-8",
-) -> _XunfeiNativeSseState:
-    return _XunfeiNativeSseState(
+) -> _GlmNativeSseState:
+    return _GlmNativeSseState(
         cache_creation_max_input_multiplier=multiplier,
         request_id=request_id,
         claude_session_id=claude_session_id,
@@ -69,7 +69,7 @@ def test_synthetic_cache_read_varies_across_requests() -> None:
     assert len(values) > 1  # 至少 2 个不同的倍数
 
 
-# ---------- cache_creation passthrough via _fill_xunfei_usage_cache ----------
+# ---------- cache_creation passthrough via _fill_glm_usage_cache ----------
 
 
 def test_fill_keeps_existing_cache_read_when_present() -> None:
@@ -81,7 +81,7 @@ def test_fill_keeps_existing_cache_read_when_present() -> None:
         "cache_read_input_tokens": 1234,
         "cache_creation_input_tokens": 42,
     }
-    _fill_xunfei_usage_cache(
+    _fill_glm_usage_cache(
         usage,
         state=state,
         seed="seed",
@@ -102,7 +102,7 @@ def test_fill_session_first_seen_cache_miss() -> None:
         "cache_read_input_tokens": 0,
         "cache_creation_input_tokens": 0,
     }
-    _fill_xunfei_usage_cache(
+    _fill_glm_usage_cache(
         usage,
         state=state,
         seed="seed",
@@ -125,7 +125,7 @@ def test_fill_synthesizes_cache_read_when_warm() -> None:
         "cache_creation_input_tokens": 0,
     }
     # 预热 session（第一次调用 → cache miss）
-    _fill_xunfei_usage_cache(
+    _fill_glm_usage_cache(
         usage,
         state=state,
         seed="seed-warm",
@@ -139,7 +139,7 @@ def test_fill_synthesizes_cache_read_when_warm() -> None:
         "cache_read_input_tokens": 0,
         "cache_creation_input_tokens": 0,
     }
-    _fill_xunfei_usage_cache(
+    _fill_glm_usage_cache(
         usage2,
         state=state,
         seed="seed-warm",
@@ -159,7 +159,7 @@ def test_fill_warm_session_stable() -> None:
     _SESSION_FIRST_SEEN.clear()
     state = _make_state(claude_session_id="sess-stable")
     # 预热
-    _fill_xunfei_usage_cache(
+    _fill_glm_usage_cache(
         {"input_tokens": 500, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0},
         state=state,
         seed="shared-seed",
@@ -179,10 +179,10 @@ def test_fill_warm_session_stable() -> None:
         "cache_creation_input_tokens": 0,
     }
     seed = "shared-seed"
-    _fill_xunfei_usage_cache(usage_a, state=state, seed=seed, event_name="message_delta",
-                              location="payload.usage", message_id="msg-1")
-    _fill_xunfei_usage_cache(usage_b, state=state, seed=seed, event_name="message_delta",
-                              location="payload.usage", message_id="msg-1")
+    _fill_glm_usage_cache(usage_a, state=state, seed=seed, event_name="message_delta",
+                          location="payload.usage", message_id="msg-1")
+    _fill_glm_usage_cache(usage_b, state=state, seed=seed, event_name="message_delta",
+                          location="payload.usage", message_id="msg-1")
 
     assert usage_a["cache_read_input_tokens"] == usage_b["cache_read_input_tokens"]
     assert usage_a["cache_creation_input_tokens"] == usage_b["cache_creation_input_tokens"]
@@ -191,7 +191,7 @@ def test_fill_warm_session_stable() -> None:
 def test_fill_ignores_non_dict_usage() -> None:
     _SESSION_FIRST_SEEN.clear()
     state = _make_state(claude_session_id="sess-non-dict")
-    _fill_xunfei_usage_cache(
+    _fill_glm_usage_cache(
         None,
         state=state,
         seed="seed",
@@ -199,7 +199,7 @@ def test_fill_ignores_non_dict_usage() -> None:
         location="payload.usage",
         message_id=None,
     )
-    _fill_xunfei_usage_cache(
+    _fill_glm_usage_cache(
         "not-a-dict",
         state=state,
         seed="seed",
@@ -210,13 +210,13 @@ def test_fill_ignores_non_dict_usage() -> None:
 
 
 def test_normalize_synthesizes_cache_in_message_start() -> None:
-    """通过 _normalize_xunfei_usage_event 端到端测试 cache 合成（warm session）。"""
+    """通过 _normalize_glm_usage_event 端到端测试 cache 合成（warm session）。"""
     _SESSION_FIRST_SEEN.clear()
     state = _make_state(claude_session_id="sess-normalize")
     payload = {
         "type": "message_start",
         "message": {
-            "id": "msg-xunfei-1",
+            "id": "msg-glm-1",
             "usage": {
                 "input_tokens": 500,
                 "cache_read_input_tokens": 0,
@@ -226,12 +226,12 @@ def test_normalize_synthesizes_cache_in_message_start() -> None:
         },
     }
     # 预热 session
-    _normalize_xunfei_usage_event(
+    _normalize_glm_usage_event(
         format_native_sse_event("message_start", json.dumps(payload)), state
     )
     # warm 调用
     event = format_native_sse_event("message_start", json.dumps(payload))
-    transformed = _normalize_xunfei_usage_event(event, state)
+    transformed = _normalize_glm_usage_event(event, state)
     assert transformed is not None
 
     lines = [line for line in transformed.split("\n") if line.startswith("data: ")]
@@ -247,15 +247,15 @@ def test_normalize_synthesizes_cache_in_message_start() -> None:
 
 
 def test_normalize_overrides_message_model_with_original_model() -> None:
-    """讯飞上游在 message_start 中返回自己的模型名（如 astron-code-latest），
+    """GLM 上游在 message_start 中返回自己的模型名（如 glm-5.2），
     必须改写为用户最初请求的 Claude 模型名，否则 Claude Code 会按错误模型计费/判断能力。"""
     _SESSION_FIRST_SEEN.clear()
     state = _make_state(claude_session_id="sess-model", original_model="claude-opus-4-8")
     payload = {
         "type": "message_start",
         "message": {
-            "id": "msg-xunfei-2",
-            "model": "astron-code-latest",  # 讯飞上游回写的上游模型名
+            "id": "msg-glm-2",
+            "model": "glm-5.2",  # GLM 上游回写的上游模型名
             "usage": {
                 "input_tokens": 100,
                 "cache_read_input_tokens": 0,
@@ -265,7 +265,7 @@ def test_normalize_overrides_message_model_with_original_model() -> None:
         },
     }
     event = format_native_sse_event("message_start", json.dumps(payload))
-    transformed = _normalize_xunfei_usage_event(event, state)
+    transformed = _normalize_glm_usage_event(event, state)
     assert transformed is not None
 
     lines = [line for line in transformed.split("\n") if line.startswith("data: ")]
@@ -281,8 +281,8 @@ def test_normalize_does_not_touch_model_when_original_model_unset() -> None:
     payload = {
         "type": "message_start",
         "message": {
-            "id": "msg-xunfei-3",
-            "model": "astron-code-latest",
+            "id": "msg-glm-3",
+            "model": "glm-5.2",
             "usage": {
                 "input_tokens": 100,
                 "cache_read_input_tokens": 0,
@@ -292,12 +292,12 @@ def test_normalize_does_not_touch_model_when_original_model_unset() -> None:
         },
     }
     event = format_native_sse_event("message_start", json.dumps(payload))
-    transformed = _normalize_xunfei_usage_event(event, state)
+    transformed = _normalize_glm_usage_event(event, state)
     assert transformed is not None
 
     lines = [line for line in transformed.split("\n") if line.startswith("data: ")]
     new_payload = json.loads(lines[0][len("data: ") :])
-    assert new_payload["message"]["model"] == "astron-code-latest"
+    assert new_payload["message"]["model"] == "glm-5.2"
 
 
 def test_normalize_does_not_touch_model_on_non_message_start_events() -> None:
@@ -309,7 +309,7 @@ def test_normalize_does_not_touch_model_on_non_message_start_events() -> None:
         "usage": {"output_tokens": 7},
     }
     event = format_native_sse_event("message_delta", json.dumps(payload))
-    transformed = _normalize_xunfei_usage_event(event, state)
+    transformed = _normalize_glm_usage_event(event, state)
     assert transformed is not None
 
     lines = [line for line in transformed.split("\n") if line.startswith("data: ")]

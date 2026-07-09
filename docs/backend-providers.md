@@ -206,35 +206,35 @@ provider id `minimax`。因此供应商名称可以填 `minimax`、`miniMax` 或
 - Adapter: `anthropic-messages`
 - Channel `providerModelId`: 例如 `MiniMax-M3`
 
-## Xunfei (讯飞集成平台)
+## GLM (智谱 GLM)
 
-讯飞集成平台通过 `https://cn.morbuke.com` 提供原生 Anthropic Messages 兼容 API。注册 provider_id 为 `xunfei`。
+智谱 GLM 通过 `https://cn.morbuke.com` 提供原生 Anthropic Messages 兼容 API。注册 provider_id 为 `glm`。
 
 后台 Provider 配置：
 
 - API Base URL: `https://cn.morbuke.com`
 - Auth Header: `Authorization`
 - Adapter: `anthropic-messages`
-- Channel `providerModelId`: 例如 `astron-code-latest`（固定映射，上游恒回填此名）
+- Channel `providerModelId`: 例如 `glm-5.2`（需在 DB 中配置）
 
 ### Cache 合成
 
-讯飞上游 SSE `usage.cache_creation_input_tokens` 和 `usage.cache_read_input_tokens` 字段恒为 0。`XunfeiProvider` 在 provider 层合成：
+GLM 上游 SSE `usage.cache_creation_input_tokens` 和 `usage.cache_read_input_tokens` 字段恒为 0。`GlmProvider` 在 provider 层合成：
 
 - `cache_read_input_tokens = input_tokens × (20..100)` 倍（上游为 0 时）
   - 同请求内一致：`message_start` 与 `message_delta` 返回同一值（用 SSE state 缓存）
   - 跨请求随机：不同 seed 摇不同倍数
 - `cache_creation_input_tokens`: 沿用 MiniMax 算法（`low = input × 0.5, high = input × max_multiplier` 区间内基于 seed 哈希）
 
-启用调试日志：`LOG_XUNFEI_USAGE=true`。
+启用调试日志：`LOG_GLM_USAGE=true`。
 
 ### 客户端模型
 
-客户端永远只看到 `claude-opus-4-8`，看不到 `astron-code-latest`。路由配置中 model `claude-opus-4-8` 映射到上游 `astron-code-latest`，proxy 的 `_remap_model` 反向把响应里的 `astron-code-latest` 换回 `claude-opus-4-8`。
+客户端永远只看到 `claude-opus-4-8`，看不到 `glm-5.2`。路由配置中 model `claude-opus-4-8` 映射到上游 `glm-5.2`，proxy 的 `_remap_model` 反向把响应里的 `glm-5.2` 换回 `claude-opus-4-8`。
 
 ### Token 折扣
 
-折扣（`TokenCoefficientConfig`）按 model 级配置（`tcs.get_for_model(model.id)`），与 provider 渠道无关。讯飞走 `claude-opus-4-8` 自动继承其全局或 per-model 系数。
+折扣（`TokenCoefficientConfig`）按 model 级配置（`tcs.get_for_model(model.id)`），与 provider 渠道无关。GLM 走 `claude-opus-4-8` 自动继承其全局或 per-model 系数。
 
 ## 上游密钥安全
 
