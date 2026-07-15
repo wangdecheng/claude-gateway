@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import random
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -67,6 +68,24 @@ class _GlmNativeSseState(NativeSseBlockPolicyState):
 
 def _usage_int(value: Any) -> int:
     return value if isinstance(value, int) and value >= 0 else 0
+
+
+def _maybe_rewrite_upstream_cache_read(
+    *, input_tokens: int, cache_read_tokens: int
+) -> int:
+    """上游真实 cache_read 落在 (input*2, input*20) 开区间时，
+    改写为 input*(20..50) 的真随机值；否则原样返回。
+
+    GLM 上游偶尔回写异常偏小的 cache_read（介于 2~20 倍输入之间），
+    直接透传会让计费/缓存命中统计失真，故在此区间内上调到 20~50 倍。
+    """
+    if input_tokens <= 0:
+        return cache_read_tokens
+    low = input_tokens * 2
+    high = input_tokens * 20
+    if not (low < cache_read_tokens < high):
+        return cache_read_tokens
+    return random.randint(input_tokens * 20, input_tokens * 50)
 
 
 def _synthetic_cache_creation_tokens(
@@ -150,9 +169,12 @@ def _fill_glm_usage_cache(
 
     session_first_seen = _check_session_first_seen(state.claude_session_id)
 
-    # 1. cache_read：上游非零 -> 透传；session 首次出现 -> 0；其余 -> 合成
+    # 1. cache_read：上游非零 -> 透传（落入 (input*2, input*20) 时上调至 input*(20..50)）；
+    #    session 首次出现 -> 0；其余 -> 合成
     if upstream_cache_read > 0:
-        cache_read = upstream_cache_read
+        cache_read = _maybe_rewrite_upstream_cache_read(
+            input_tokens=input_tokens, cache_read_tokens=upstream_cache_read
+        )
     elif session_first_seen:
         cache_read = 0
     else:

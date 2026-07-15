@@ -13,9 +13,10 @@ from core.anthropic.native_sse_block_policy import format_native_sse_event
 from providers.glm.client import (
     _SESSION_FIRST_SEEN,
     _fill_glm_usage_cache,
+    _GlmNativeSseState,
+    _maybe_rewrite_upstream_cache_read,
     _normalize_glm_usage_event,
     _synthetic_cache_read_tokens,
-    _GlmNativeSseState,
 )
 
 
@@ -69,11 +70,87 @@ def test_synthetic_cache_read_varies_across_requests() -> None:
     assert len(values) > 1  # 至少 2 个不同的倍数
 
 
+# ---------- upstream cache_read rewrite in (input*2, input*20) ----------
+
+
+def test_rewrite_passthrough_below_lower_bound() -> None:
+    """cache_read ≤ input*2 不触发改写（开区间下界）。"""
+    assert _maybe_rewrite_upstream_cache_read(input_tokens=100, cache_read_tokens=150) == 150
+    assert _maybe_rewrite_upstream_cache_read(input_tokens=100, cache_read_tokens=200) == 200
+
+
+def test_rewrite_passthrough_at_upper_bound_and_above() -> None:
+    """cache_read ≥ input*20 不触发改写（开区间上界及之上原样返回）。"""
+    assert _maybe_rewrite_upstream_cache_read(input_tokens=100, cache_read_tokens=2000) == 2000
+    assert _maybe_rewrite_upstream_cache_read(input_tokens=100, cache_read_tokens=5000) == 5000
+
+
+def test_rewrite_in_range_maps_to_20_to_50_times_input() -> None:
+    """(input*2, input*20) 区间内的值改写为 input*(20..50)。"""
+    for value in (300, 999, 1500, 1999):
+        rewritten = _maybe_rewrite_upstream_cache_read(
+            input_tokens=100, cache_read_tokens=value
+        )
+        assert 100 * 20 <= rewritten <= 100 * 50
+
+
+def test_rewrite_zero_input_is_passthrough() -> None:
+    """input_tokens=0 时区间退化为空，原样返回。"""
+    assert _maybe_rewrite_upstream_cache_read(input_tokens=0, cache_read_tokens=1234) == 1234
+
+
+def test_fill_rewrites_upstream_cache_read_in_range() -> None:
+    """上游返回落入 (input*2, input*20) 的 cache_read 应被上调至 input*(20..50)。"""
+    _SESSION_FIRST_SEEN.clear()
+    state = _make_state(claude_session_id="sess-rewrite")
+    usage: dict[str, Any] = {
+        "input_tokens": 100,
+        "cache_read_input_tokens": 1500,  # 介于 200~2000 之间
+        "cache_creation_input_tokens": 42,
+    }
+    _fill_glm_usage_cache(
+        usage,
+        state=state,
+        seed="seed",
+        event_name="message_start",
+        location="payload.usage",
+        message_id=None,
+    )
+    assert 100 * 20 <= usage["cache_read_input_tokens"] <= 100 * 50
+    # cache_creation 仍透传上游值
+    assert usage["cache_creation_input_tokens"] == 42
+
+
+def test_fill_keeps_upstream_cache_read_outside_range() -> None:
+    """上游返回不在改写区间时原样透传（含刚好等于 input*20）。"""
+    _SESSION_FIRST_SEEN.clear()
+    state = _make_state(claude_session_id="sess-noop")
+    for raw in (150, 200, 2000, 9999):
+        usage: dict[str, Any] = {
+            "input_tokens": 100,
+            "cache_read_input_tokens": raw,
+            "cache_creation_input_tokens": 0,
+        }
+        _fill_glm_usage_cache(
+            usage,
+            state=state,
+            seed="seed",
+            event_name="message_start",
+            location="payload.usage",
+            message_id=None,
+        )
+        assert usage["cache_read_input_tokens"] == raw
+
+
 # ---------- cache_creation passthrough via _fill_glm_usage_cache ----------
 
 
 def test_fill_keeps_existing_cache_read_when_present() -> None:
-    """上游有非零值时透传，不受 session 影响。"""
+    """上游有非零值时透传，不受 session 影响。
+
+    注意：1234 落在 (input*2=200, input*20=2000) 改写区间内，会被上调至
+    input*(20..50)=2000..5000；cache_creation 仍透传上游值。
+    """
     _SESSION_FIRST_SEEN.clear()
     state = _make_state(claude_session_id="sess-upstream")
     usage: dict[str, Any] = {
@@ -89,7 +166,8 @@ def test_fill_keeps_existing_cache_read_when_present() -> None:
         location="payload.usage",
         message_id=None,
     )
-    assert usage["cache_read_input_tokens"] == 1234
+    # 1234 落在改写区间 (200, 2000) 内 -> 上调至 2000..5000
+    assert 100 * 20 <= usage["cache_read_input_tokens"] <= 100 * 50
     assert usage["cache_creation_input_tokens"] == 42
 
 
