@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENTS.md
 
 ## Project Overview
 
@@ -10,7 +10,7 @@
 
 ## 开发场景 → 文档映射
 
-开发时先读 CLAUDE.md 获取概览，再按场景读对应文档。
+开发时先读 AGENTS.md 获取概览，再按场景读对应文档。
 
 | 场景 | 文档 | 关键入口 |
 |------|------|----------|
@@ -115,7 +115,7 @@ components/
 
 **Auth**: Two parallel systems — JWT (HttpOnly cookie `high_api_session`) for UI; API Key (Bearer `sk-...`) for proxy. Frontend middleware verifies JWT with `jose`; backend `get_current_user` reads cookie → fetches user.
 
-**Billing (POST /v1/messages)** - **async pending + worker, NOT pre-reserve**: ① Validate API key -> `(user, api_key)` ② Resolve model via `ModelRouter` -> `Model` -> `ModelProviderRoute` (table `model_providers`) -> `Provider` ③ Token coefficient (discount) via `TokenCoefficientService.get_for_model()` ④ Pick upstream key from `provider_keys` pool (AES-256-GCM, `channel_keys` subset if bound) ⑤ Pre-flight: `balance >= 10` (¥0.10), **no reservation** ⑥ Stream SSE response, rewriting each chunk in-flight (provider model name -> original Claude name, apply coefficient) and accumulating usage ⑦ `finally`: write `pending_billings` row (`request_id` UNIQUE) ⑧ `BillingWorker` (asyncio task, every 30s, `FOR UPDATE SKIP LOCKED`) settles each row: `compute_cost` -> `FOR UPDATE` user -> `balance -= cost` -> write `RequestLog` + `BillingRecord` + `UsageRecord`; retries 3x then `dead`. Prices in micro-yuan/1K tokens; billing in fen. **Note**: `app/services/billing_service.py` is LEGACY (synchronous, retired `ChannelConfig`); active path is `app/services/billing/{compute,pending,settle,worker,token_coefficient}.py`.
+**Billing (POST /v1/messages)** - **async pending + worker, NOT pre-reserve**: ① Validate API key -> `(user, api_key)` ② Resolve model via `ModelRouter` -> `Model` -> `ModelProviderRoute` (table `model_providers`) -> `Provider` ③ Token coefficient (discount) via `TokenCoefficientService.get_for_model()` ④ Pick upstream key from `provider_keys` pool (AES-256-GCM, `channel_keys` subset if bound) ⑤ Pre-flight: `balance >= 10` (¥0.10), **no reservation** ⑥ Stream SSE response, rewriting each chunk in-flight (provider model name -> original Codex name, apply coefficient) and accumulating usage ⑦ `finally`: write `pending_billings` row (`request_id` UNIQUE) ⑧ `BillingWorker` (asyncio task, every 30s, `FOR UPDATE SKIP LOCKED`) settles each row: `compute_cost` -> `FOR UPDATE` user -> `balance -= cost` -> write `RequestLog` + `BillingRecord` + `UsageRecord`; retries 3x then `dead`. Prices in micro-yuan/1K tokens; billing in fen. **Note**: `app/services/billing_service.py` is LEGACY (synchronous, retired `ChannelConfig`); active path is `app/services/billing/{compute,pending,settle,worker,token_coefficient}.py`.
 
 **Database**: SQLAlchemy async (asyncpg/aiosqlite). Tables auto-created on startup; Alembic for production migrations. Seed data inserted idempotently. `FOR UPDATE` locking on balance; UNIQUE on `billing_records.request_log_id` (anti-double-charge) and `payment_records.transaction_id` (idempotency).
 
@@ -128,17 +128,3 @@ components/
 - Redemption codes: bcrypt hashed, prefix match (`REDM-XXXX-XXXX-XXXX`).
 - Frontend rewrites `/api/*` → `localhost:8082/api/*` (hardcoded in `next.config.ts`).
 - App factory creates missing tables on startup — fresh DBs work without migrations.
-
-## Agent skills
-
-### Issue tracker
-
-Issues and specs live as markdown files under `.scratch/<feature-slug>/`. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Default canonical labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context — `CONTEXT.md` at repo root + `docs/adr/`. See `docs/agents/domain.md`.

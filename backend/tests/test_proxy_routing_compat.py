@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import httpx
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
@@ -19,12 +20,14 @@ from app.exceptions import AppException
 from app.models.api_key import ApiKey
 from app.models.model import Model
 from app.models.model_provider_route import ModelProviderRoute
+from app.models.pending_billing import PendingBilling
 from app.models.provider import Provider, ProviderKey
 from app.models.user import User
 from app.routers.proxy import _get_active_upstream_key
 from app.routers.proxy import create_message as proxy_create_message
 from app.services.api_key_service import hash_key
 from app.services.provider_service import encrypt_api_key
+from providers.exceptions import UpstreamResponseError
 from server import app
 
 RAW_CLIENT_KEY = "sk-" + "b" * 40
@@ -38,6 +41,49 @@ class FakeProvider:
     async def stream_response(self, body, request_id: str) -> AsyncIterator[str]:
         self.seen_model = body.model
         yield 'event: message_start\ndata: {"type":"message_start"}\n\n'
+
+
+class ErrorProvider:
+    def __init__(
+        self,
+        status_code: int,
+        body: bytes,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        self.status_code = status_code
+        self.body = body
+        self.headers = headers or {}
+        self.calls = 0
+
+    async def stream_response(self, body, request_id: str) -> AsyncIterator[str]:
+        self.calls += 1
+        raise UpstreamResponseError(
+            status_code=self.status_code,
+            body=self.body,
+            headers=self.headers,
+        )
+        if False:
+            yield ""
+
+
+class TransportFailureProvider:
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    async def stream_response(self, body, request_id: str) -> AsyncIterator[str]:
+        raise self.error
+        if False:
+            yield ""
+
+
+class SseErrorProvider:
+    async def stream_response(self, body, request_id: str) -> AsyncIterator[str]:
+        yield "event: error\n"
+        yield (
+            'data: {"type":"error","error":{"type":"overloaded_error",'
+            '"message":"deepseek/deepseekV4-pro busy"}}\n'
+        )
+        yield "\n"
 
 
 class FakeRegistry:
@@ -265,3 +311,137 @@ async def test_proxy_releases_request_db_transaction_before_streaming():
 
         assert isinstance(response, StreamingResponse)
         assert not db.in_transaction()
+
+
+@pytest.mark.asyncio
+async def test_proxy_passes_upstream_error_status_body_and_safe_headers_through():
+    upstream_body = (
+        b'{"type":"error","error":{"type":"overloaded_error","message":"busy"}}\n'
+    )
+    fake_provider = ErrorProvider(
+        529,
+        upstream_body,
+        {
+            "Content-Type": "application/json",
+            "Retry-After": "7",
+            "Request-Id": "req_upstream_123",
+            "Set-Cookie": "provider-secret=1",
+            "Connection": "close",
+        },
+    )
+    app.state.provider_registry = FakeRegistry(fake_provider)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/v1/messages",
+            headers={"anthropic-auth-token": RAW_CLIENT_KEY},
+            json={
+                "model": "claude-opus-4-8",
+                "max_tokens": 16,
+                "messages": [{"role": "user", "content": "OK"}],
+            },
+        )
+
+    assert response.status_code == 529
+    assert response.content == upstream_body
+    assert response.headers["content-type"] == "application/json"
+    assert response.headers["retry-after"] == "7"
+    assert response.headers["request-id"] == "req_upstream_123"
+    assert "set-cookie" not in response.headers
+    assert response.headers.get("connection") != "close"
+    assert fake_provider.calls == 1
+
+    async with app.state.db_session_factory() as db:
+        assert (await db.execute(select(PendingBilling))).scalar_one_or_none() is None
+
+
+@pytest.mark.asyncio
+async def test_proxy_hides_upstream_authentication_error():
+    fake_provider = ErrorProvider(
+        401,
+        b'{"error":{"message":"secret upstream API key expired"}}',
+        {"Content-Type": "application/json"},
+    )
+    app.state.provider_registry = FakeRegistry(fake_provider)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/v1/messages",
+            headers={"anthropic-auth-token": RAW_CLIENT_KEY},
+            json={
+                "model": "claude-opus-4-8",
+                "max_tokens": 16,
+                "messages": [{"role": "user", "content": "OK"}],
+            },
+        )
+
+    assert response.status_code == 502
+    assert response.json()["error"]["type"] == "api_error"
+    assert "secret upstream API key" not in response.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "expected_status"),
+    [
+        (
+            httpx.ReadTimeout(
+                "upstream response headers timed out",
+                request=httpx.Request("POST", "https://upstream.test/messages"),
+            ),
+            504,
+        ),
+        (
+            httpx.ConnectError(
+                "upstream connection failed",
+                request=httpx.Request("POST", "https://upstream.test/messages"),
+            ),
+            502,
+        ),
+    ],
+)
+async def test_proxy_maps_pre_response_transport_failures(error, expected_status):
+    app.state.provider_registry = FakeRegistry(TransportFailureProvider(error))
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/v1/messages",
+            headers={"anthropic-auth-token": RAW_CLIENT_KEY},
+            json={
+                "model": "claude-opus-4-8",
+                "max_tokens": 16,
+                "messages": [{"role": "user", "content": "OK"}],
+            },
+        )
+
+    assert response.status_code == expected_status
+    assert response.json()["error"]["type"] == "api_error"
+
+
+@pytest.mark.asyncio
+async def test_proxy_forwards_sse_error_without_rewriting_or_billing():
+    app.state.provider_registry = FakeRegistry(SseErrorProvider())
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/v1/messages",
+            headers={"anthropic-auth-token": RAW_CLIENT_KEY},
+            json={
+                "model": "claude-opus-4-8",
+                "max_tokens": 16,
+                "messages": [{"role": "user", "content": "OK"}],
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.text == (
+        "event: error\n"
+        'data: {"type":"error","error":{"type":"overloaded_error",'
+        '"message":"deepseek/deepseekV4-pro busy"}}\n\n'
+    )
+    async with app.state.db_session_factory() as db:
+        assert (await db.execute(select(PendingBilling))).scalar_one_or_none() is None

@@ -73,7 +73,15 @@ class AdminModelResponse(BaseModel):
 
 
 class ProviderOption(BaseModel):
-    """Lightweight provider entry for admin dropdowns."""
+    """Lightweight provider entry for admin dropdowns.
+
+    `channel_name` is required so the /admin/channels "add route" dropdown can
+    disambiguate multiple providers sharing the same `name` (e.g. two `GLM`
+    upstreams). See CONTEXT.md §Provider.
+    """
 
     id: int
     name: str
+    channel_name: str = Field(..., alias="channelName")
+
+    model_config = {"populate_by_name": True}

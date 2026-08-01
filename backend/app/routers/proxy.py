@@ -4,9 +4,10 @@ import json
 import logging
 import uuid
 
+import httpx
 from cryptography.exceptions import InvalidTag
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +22,7 @@ from app.services.streaming.sse_rewrite import _apply_coefficient_to_sse_event
 from config.settings import get_settings
 from core.anthropic.sse import ANTHROPIC_SSE_RESPONSE_HEADERS
 from core.trace import trace_event
+from providers.exceptions import APIError, UpstreamResponseError
 from providers.registry import ProviderRegistry
 
 logger = logging.getLogger("cloude-gateway.proxy")
@@ -29,6 +31,49 @@ router = APIRouter(tags=["proxy"])
 
 # Minimum balance threshold for pre-flight check (¥0.10)
 MIN_BALANCE_THRESHOLD_CENTS = 10
+
+_UPSTREAM_ERROR_HEADERS = frozenset({"content-type", "retry-after"})
+
+
+def _is_upstream_request_trace_header(name: str) -> bool:
+    lower = name.lower()
+    return lower in {"request-id", "traceparent", "tracestate"} or lower.endswith(
+        ("-request-id", "-trace-id")
+    )
+
+
+def _passthrough_upstream_headers(headers: dict[str, str]) -> dict[str, str]:
+    """Keep response metadata needed for error parsing, retrying, and correlation."""
+    return {
+        name: value
+        for name, value in headers.items()
+        if name.lower() in _UPSTREAM_ERROR_HEADERS or _is_upstream_request_trace_header(name)
+    }
+
+
+def _sse_error_chunk_state(chunk: str, in_error_event: bool) -> tuple[bool, bool]:
+    """Return whether a chunk belongs to an upstream SSE error event and its next state."""
+    chunk_is_error = in_error_event
+    next_state = in_error_event
+
+    for line in chunk.splitlines():
+        if line.startswith("event:"):
+            next_state = line.removeprefix("event:").strip() == "error"
+            chunk_is_error = chunk_is_error or next_state
+            continue
+        if line.startswith("data:"):
+            try:
+                payload = json.loads(line.removeprefix("data:").strip())
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict) and payload.get("type") == "error":
+                next_state = True
+                chunk_is_error = True
+            continue
+        if not line:
+            next_state = False
+
+    return chunk_is_error, next_state
 
 
 def _extract_usage_from_sse_line(line: str) -> dict[str, int] | None:
@@ -255,6 +300,18 @@ async def create_message(
     _original_model = body.model
     _remap_model = _provider_model != _original_model
 
+    provider_stream = provider_instance.stream_response(
+        provider_body,
+        request_id=f"req_{body.model}",
+    )
+    first_chunk: str | None = None
+
+    async def provider_chunks():
+        if first_chunk is not None:
+            yield first_chunk
+        async for chunk in provider_stream:
+            yield chunk
+
     async def billing_stream():
         nonlocal accumulated_usage
         # Captured from message_start — the upstream Anthropic message.id
@@ -263,6 +320,9 @@ async def create_message(
         # upstream provider's logs. message_start fires exactly once per
         # response, so last-wins assignment is correct.
         upstream_message_id: str | None = None
+        stream_completed = False
+        saw_upstream_error = False
+        in_error_event = False
         try:
             trace_event(
                 stage="egress",
@@ -272,10 +332,9 @@ async def create_message(
                 gateway_model=body.model,
                 provider_model=routed.provider_model,
             )
-            async for chunk in provider_instance.stream_response(
-                provider_body,
-                request_id=f"req_{body.model}",
-            ):
+            async for chunk in provider_chunks():
+                error_chunk, in_error_event = _sse_error_chunk_state(chunk, in_error_event)
+                saw_upstream_error = saw_upstream_error or error_chunk
                 # Parse usage from message_start / message_delta data lines
                 usage = _extract_usage_from_sse_line(chunk)
                 if usage:
@@ -292,48 +351,96 @@ async def create_message(
                 mid = _extract_message_id_from_sse_line(chunk)
                 if mid:
                     upstream_message_id = mid
-                if _remap_model:
-                    chunk = chunk.replace(_provider_model, _original_model)
-                chunk = _apply_coefficient_to_sse_event(chunk, coefficient)
+                if not error_chunk:
+                    if _remap_model:
+                        chunk = chunk.replace(_provider_model, _original_model)
+                    chunk = _apply_coefficient_to_sse_event(chunk, coefficient)
                 yield chunk
+            stream_completed = True
         finally:
-            adjusted = apply_coefficient(
-                input_tokens=accumulated_usage["input_tokens"] or 0,
-                cache_read_tokens=accumulated_usage["cache_read_tokens"] or 0,
-                cache_creation_tokens=accumulated_usage["cache_creation_tokens"] or 0,
-                output_tokens=accumulated_usage["output_tokens"] or 0,
-                coefficient=coefficient,
-            )
-            try:
-                from app.services.billing.pending import write_pending_billing
+            close_provider_stream = getattr(provider_stream, "aclose", None)
+            if callable(close_provider_stream):
+                try:
+                    await close_provider_stream()
+                except Exception:
+                    logger.exception(
+                        "Failed to close provider stream for user=%d model=%s",
+                        user_id,
+                        body.model,
+                    )
+            has_reported_usage = any(accumulated_usage.values())
+            should_bill = (stream_completed and not saw_upstream_error) or has_reported_usage
+            if should_bill:
+                adjusted = apply_coefficient(
+                    input_tokens=accumulated_usage["input_tokens"] or 0,
+                    cache_read_tokens=accumulated_usage["cache_read_tokens"] or 0,
+                    cache_creation_tokens=accumulated_usage["cache_creation_tokens"] or 0,
+                    output_tokens=accumulated_usage["output_tokens"] or 0,
+                    coefficient=coefficient,
+                )
+                try:
+                    from app.services.billing.pending import write_pending_billing
 
-                await write_pending_billing(
-                    db,
-                    request_id=uuid.uuid4(),
-                    user_id=user_id,
-                    api_key_id=api_key_id,
-                    model_id=model.id,
-                    route_id=routed.db_route_id,
-                    provider_id=provider.id,
-                    input_tokens=adjusted.input_tokens,
-                    output_tokens=adjusted.output_tokens,
-                    cache_read_tokens=adjusted.cache_read_tokens,
-                    cache_creation_tokens=adjusted.cache_creation_tokens,
-                    upstream_message_id=upstream_message_id,
-                )
-                await db.commit()
-            except Exception:
-                await db.rollback()
-                logger.exception(
-                    "Failed to write pending_billing for user=%d model=%s",
-                    user_id,
-                    body.model,
-                )
+                    await write_pending_billing(
+                        db,
+                        request_id=uuid.uuid4(),
+                        user_id=user_id,
+                        api_key_id=api_key_id,
+                        model_id=model.id,
+                        route_id=routed.db_route_id,
+                        provider_id=provider.id,
+                        input_tokens=adjusted.input_tokens,
+                        output_tokens=adjusted.output_tokens,
+                        cache_read_tokens=adjusted.cache_read_tokens,
+                        cache_creation_tokens=adjusted.cache_creation_tokens,
+                        upstream_message_id=upstream_message_id,
+                    )
+                    await db.commit()
+                except Exception:
+                    await db.rollback()
+                    logger.exception(
+                        "Failed to write pending_billing for user=%d model=%s",
+                        user_id,
+                        body.model,
+                    )
 
     # Release the request-scoped transaction before the long-lived stream starts;
     # the finally block in billing_stream will start a fresh transaction for the
     # pending_billing write.
     await db.commit()
+
+    # Open the upstream stream before committing downstream HTTP 200. This is the
+    # only point where an upstream HTTP error can still retain its original status.
+    try:
+        first_chunk = await anext(provider_stream)
+    except StopAsyncIteration:
+        first_chunk = None
+    except UpstreamResponseError as exc:
+        trace_event(
+            stage="egress",
+            event="proxy.upstream_error.passthrough",
+            source="api",
+            provider_id=routed.provider_id,
+            gateway_model=body.model,
+            status_code=exc.status_code,
+        )
+        if exc.status_code in {401, 403}:
+            raise APIError(
+                "Gateway upstream provider authentication failed.", status_code=502
+            ) from exc
+        return Response(
+            content=exc.body,
+            status_code=exc.status_code,
+            headers=_passthrough_upstream_headers(exc.headers),
+        )
+    except (httpx.ReadTimeout, TimeoutError) as exc:
+        raise APIError(
+            "Gateway timed out waiting for the upstream provider.", status_code=504
+        ) from exc
+    except httpx.TransportError as exc:
+        raise APIError(
+            "Gateway could not connect to the upstream provider.", status_code=502
+        ) from exc
 
     return StreamingResponse(
         billing_stream(),

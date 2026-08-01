@@ -47,7 +47,7 @@
 │   AnthropicMessagesTransport(BaseProvider)  │
 │  - 原生 Anthropic SSE 流解析                 │
 │  - /v1/models 端点查询模型列表               │
-│  - 错误响应体日志 / 响应式流关闭              │
+│  - 上游错误响应保真 / 响应式流关闭            │
 └──────┬───────────────┬──────────────┬───────┘
        ▼               ▼              ▼
   DeepSeekProvider  GlmProvider   MiniMaxProvider
@@ -119,11 +119,12 @@ class ProviderConfig(BaseModel):
 > ⚠️ 旧文档的 `read_timeout`/`write_timeout`/`connect_timeout`/`log_raw_payloads` 字段名已过时，实际前缀是 `http_`，并有 per-provider 的 usage 日志开关。
 
 ### GlobalRateLimiter (`providers/rate_limit.py`)
-三层速率控制 + 重试:
+三层速率控制，不负责模型请求重试:
 1. **proactive**: 滑动窗口限流
-2. **reactive**: 收到 429/5xx 时 block
+2. **reactive**: 由调用方显式设置临时 block
 3. **concurrency**: `asyncio.Semaphore` 控最大并发
-4. **execute_with_retry**: 指数退避 + 抖动
+
+`/v1/messages` 每次只调用上游一次。上游错误交给下游客户端决定是否重试，避免网关重试与客户端重试叠加。
 
 ## ProviderRegistry 工作流 (`providers/registry.py`)
 
@@ -159,10 +160,11 @@ provider_rate_window = 60      # 60 秒窗口
 provider_max_concurrency = 5  # 最多 5 并发
 ```
 
-`execute_with_retry` 退避策略:
-- 429: 等待 Retry-After 或 1s × 指数退避
-- 5xx: 1s × 指数退避 (最多 3 次)
-- 连接错误: 0.5s × 指数退避 (最多 2 次)
+错误响应策略：
+- 除 `401/403` 外，上游错误保留状态码、响应体、`Content-Type`、`Retry-After` 和请求追踪头
+- 上游 `401/403` 视为 Provider 凭据故障，转换为网关 `502`
+- 建连/协议错误转换为 `502`，等待响应超时转换为 `504`
+- 流开始后的合法 SSE `error` 原样转发；传输故障直接中断流，不合成正常结束事件
 
 ## Provider 详情
 
@@ -262,7 +264,7 @@ PROVIDER_FACTORIES = {"deepseek": ..., "minimax": ..., "glm": ..., "xxx": _creat
 - 见上 "新增 Provider 步骤"
 
 ### 修改速率限制策略
-1. `providers/rate_limit.py`: 滑动窗口 / 重试
+1. `providers/rate_limit.py`: 滑动窗口 / 并发 / 临时 block
 2. `config/settings.py`: 默认值
 
 ### 修改流事件 / usage 合成

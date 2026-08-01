@@ -148,6 +148,7 @@ export default function AdminProvidersPage() {
             <tr className="border-b border-slate-200 bg-slate-50 text-left text-sm text-neutral-text-secondary">
               <th className="w-8 px-4 py-3" />
               <th className="px-4 py-3 font-medium">名称</th>
+              <th className="px-4 py-3 font-medium">渠道名</th>
               <th className="px-4 py-3 font-medium">API Base URL</th>
               <th className="px-4 py-3 font-medium">适配器</th>
               <th className="px-4 py-3 font-medium text-right">Keys</th>
@@ -158,7 +159,7 @@ export default function AdminProvidersPage() {
           <tbody>
             {(!providers || providers.length === 0) && (
               <tr>
-                <td colSpan={7} className="px-4 py-12 text-center text-sm text-neutral-text-secondary">
+                <td colSpan={8} className="px-4 py-12 text-center text-sm text-neutral-text-secondary">
                   还没有供应商，点击"添加供应商"开始
                 </td>
               </tr>
@@ -261,6 +262,9 @@ function ProviderRow({
         <td className="px-4 py-3 font-medium text-neutral-text-primary">
           {provider.name}
         </td>
+        <td className="px-4 py-3 text-neutral-text-secondary">
+          {provider.channelName}
+        </td>
         <td className="px-4 py-3 font-mono text-xs text-neutral-text-secondary max-w-[240px] truncate">
           {provider.apiBaseUrl}
         </td>
@@ -306,7 +310,7 @@ function ProviderRow({
       </tr>
       {isExpanded && (
         <tr key={`keys-${provider.id}`}>
-          <td colSpan={7} className="border-b border-slate-100 bg-slate-50/30 px-8 py-4">
+          <td colSpan={8} className="border-b border-slate-100 bg-slate-50/30 px-8 py-4">
             <KeyManager providerId={provider.id} providerName={provider.name} />
           </td>
         </tr>

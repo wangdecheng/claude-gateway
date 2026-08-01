@@ -15,6 +15,7 @@ from .exceptions import (
     ProviderError,
     RateLimitError,
     UnknownProviderTypeError,
+    UpstreamResponseError,
 )
 
 __all__ = [
@@ -28,4 +29,5 @@ __all__ = [
     "ProviderError",
     "RateLimitError",
     "UnknownProviderTypeError",
+    "UpstreamResponseError",
 ]

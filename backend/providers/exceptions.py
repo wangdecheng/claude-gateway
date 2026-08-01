@@ -1,5 +1,6 @@
 """Unified exception hierarchy for providers."""
 
+from collections.abc import Mapping
 from typing import Any
 
 
@@ -28,6 +29,26 @@ class ProviderError(Exception):
                 "message": self.message,
             },
         }
+
+
+class UpstreamResponseError(Exception):
+    """An upstream HTTP error response that must retain its wire payload.
+
+    This deliberately is not a :class:`ProviderError`: the global provider
+    exception handler would otherwise serialize and replace the upstream body.
+    """
+
+    def __init__(
+        self,
+        *,
+        status_code: int,
+        body: bytes,
+        headers: Mapping[str, str],
+    ) -> None:
+        super().__init__(f"Upstream returned HTTP {status_code}")
+        self.status_code = status_code
+        self.body = body
+        self.headers = dict(headers)
 
 
 class AuthenticationError(ProviderError):

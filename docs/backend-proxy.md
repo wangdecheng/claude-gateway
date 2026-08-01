@@ -68,12 +68,18 @@
 8. 释放请求事务
    db.commit()  <-- 在开流式前释放请求级事务
                   finally 会用新事务写 pending
+
+9. 提交下游 HTTP 200 前打开上游流并读取首个 chunk
+   -> 上游错误响应: 保留状态码、原始 body 与允许的重试/追踪头后直接返回
+   -> 上游 401/403: 转换为网关 502（Provider 凭据故障）
+   -> 建连/协议错误: 502；等待响应超时: 504
+   -> 网关不重试，由下游客户端决定是否重试
 ```
 
 ### 流式阶段（`billing_stream` 生成器）
 
 ```
-9. provider_instance.stream_response(body, request_id=...)
+10. provider_instance.stream_response(body, request_id=...)
      -> httpx 异步流 -> Anthropic SSE 事件
      对每个 chunk:
        a. 解析 usage (message_start / message_delta):
@@ -83,9 +89,12 @@
        c. 在 SSE chunk 上就地改写:
           - provider_model -> 原始 Claude 模型名 (如 astron-code-latest -> claude-...)
           - 应用 token 系数 (折扣) 到 usage 字段
+          - 上游 SSE error 事件跳过所有改写，原样转发
        d. yield chunk 给客户端
 
-10. finally (独立事务)
+   流中传输故障直接中断，不补写错误文本、end_turn 或 message_stop。
+
+11. finally (独立事务)
     adjusted = apply_coefficient(accumulated_usage, coefficient)
     write_pending_billing(
         request_id=uuid4(),   # UNIQUE
@@ -95,12 +104,15 @@
     )
     db.commit()
     失败: rollback + 记日志 (不影响已返回的流)
+
+   正常完成时按现有规则写入；错误流仅在上游已明确报告 usage 时写入，
+   无 usage 的失败请求不创建 pending_billing。
 ```
 
 ### 结算阶段（`BillingWorker`，进程内 asyncio task，每 30s 扫描）
 
 ```
-11. 认领批次 (短事务)
+12. 认领批次 (短事务)
     claim_pending_batch(max_age_seconds=5, limit=100)
       SELECT ... FOR UPDATE SKIP LOCKED
       WHERE status='pending' AND created_at < now()-5s
@@ -108,7 +120,7 @@
       ORDER BY created_at LIMIT 100
     commit  (释放行锁)
 
-12. 逐行结算 (每行独立短事务)
+13. 逐行结算 (每行独立短事务)
     settle_one(db, pending):
       cost = compute_costs_for_pending(pending, db)
       SELECT user FOR UPDATE          # 行级锁防并发扣减
@@ -119,7 +131,7 @@
       pending.status = 'settled'; pending.settled_at = now
     commit
 
-13. 失败处理
+14. 失败处理
     mark_retry(): retry_count++, last_error = exc
     超过 max_retry (3) -> status='dead' (死信，人工介入)
 ```

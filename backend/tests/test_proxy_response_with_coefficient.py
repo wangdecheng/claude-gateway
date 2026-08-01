@@ -5,6 +5,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import httpx
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
@@ -44,6 +45,16 @@ class _StubProvider:
         )
         yield 'data: {"type":"message_delta","usage":{"output_tokens":7}}\n'
         yield 'data: {"type":"message_stop"}\n'
+
+
+class _FailingAfterUsageProvider:
+    async def stream_response(self, body, *, request_id=None, thinking_enabled=False):
+        yield (
+            'data: {"type":"message_start","message":{"id":"msg_partial",'
+            '"usage":{"input_tokens":10,"cache_read_input_tokens":0,'
+            '"cache_creation_input_tokens":0,"output_tokens":0}}}\n'
+        )
+        raise httpx.ReadError("upstream stream interrupted")
 
 
 class _StubProviderRegistry:
@@ -172,3 +183,29 @@ async def test_pending_billing_stores_adjusted_values(setup_db):
         assert pb.cache_read_tokens == 80   # pass-through: raw upstream value
         assert pb.cache_creation_tokens == 10
         assert pb.output_tokens == 4
+
+
+@pytest.mark.asyncio
+async def test_midstream_failure_bills_only_usage_reported_before_failure(setup_db):
+    session_factory = setup_db
+    app.state.provider_registry = _StubProviderRegistry(_FailingAfterUsageProvider())
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        with pytest.raises(httpx.ReadError, match="upstream stream interrupted"):
+            await ac.post(
+                "/v1/messages",
+                headers={"Authorization": "Bearer sk-aaaa-whatever"},
+                json={
+                    "model": "m1",
+                    "max_tokens": 100,
+                    "messages": [{"role": "user", "content": "hi"}],
+                },
+            )
+
+    async with session_factory() as session:
+        pb = (await session.execute(select(PendingBilling))).scalar_one()
+        assert pb.input_tokens == 5
+        assert pb.cache_read_tokens == 0
+        assert pb.cache_creation_tokens == 0
+        assert pb.output_tokens == 0

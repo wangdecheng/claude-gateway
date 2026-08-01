@@ -66,7 +66,7 @@ export function ProviderEditForm({
       multiplier: 1.0,
       apiBaseUrl: "",
       authHeader: "Authorization",
-      adapter: "openai-chat-completions",
+      adapter: "anthropic-messages",
       keys: "",
     },
   });

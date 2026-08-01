@@ -54,13 +54,20 @@ async def list_providers_dropdown(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all providers for admin dropdowns (id + name only).
+    """List active (non-deleted) providers for admin dropdowns.
 
-    Kept backward-compatible with ModelEditForm from Story 4.1.
+    Returns `channel_name` alongside `name` so the /admin/channels "add route"
+    dropdown can disambiguate providers that share the same adapter `name`.
+    Deleted providers are excluded — otherwise they appear as ghost/duplicate
+    entries in the dropdown.
     """
-    result = await db.execute(select(Provider.id, Provider.name).order_by(Provider.name))
+    result = await db.execute(
+        select(Provider.id, Provider.name, Provider.channel_name)
+        .where(Provider.status != "deleted")
+        .order_by(Provider.name)
+    )
     rows = result.all()
-    return [{"id": row[0], "name": row[1]} for row in rows]
+    return [{"id": row[0], "name": row[1], "channel_name": row[2]} for row in rows]
 
 
 # ── Provider CRUD ────────────────────────────────────────────────────

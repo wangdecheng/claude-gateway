@@ -134,7 +134,12 @@ class BaseProvider(ABC):
         request_id: str | None = None,
         thinking_enabled: bool | None = None,
     ) -> AsyncIterator[str]:
-        """Stream response in Anthropic SSE format."""
+        """Stream response in Anthropic SSE format.
+
+        Native transports raise ``UpstreamResponseError`` before the first
+        chunk for upstream HTTP errors and propagate transport failures after
+        streaming begins. Callers own the downstream HTTP boundary.
+        """
         # Typing: abstract async generators need a yield for AsyncIterator[str]
         # inference; this branch is never executed.
         if False:

@@ -69,7 +69,7 @@ export function useCreateProvider() {
           multiplier: data.multiplier ?? 1.0,
           apiBaseUrl: data.apiBaseUrl,
           authHeader: data.authHeader ?? "Authorization",
-          adapter: data.adapter ?? "openai-chat-completions",
+          adapter: data.adapter ?? "anthropic-messages",
           keys: data.keys ?? [],
         }),
       }),
