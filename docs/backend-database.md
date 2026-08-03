@@ -280,6 +280,8 @@ uv run alembic upgrade head
 - **9 条 Routes** (model_providers): 3 条 Anthropic 原生 + 1 条 GLM 备用(claude-opus-4-8) + 2 条 OpenAI 原生 + 3 条 RightCodes 跨供应商
 - **1 个默认 admin 用户** (`287187910@qq.com`)，仅当无 admin 时创建
 
+> Volcengine / DeepSeek / MiniMax 已在 `config/provider_catalog.py` 注册（用于 provider registry 与 admin 下拉），但**不在 seed 中自动建行**；需要通过 admin UI 或 SQL 显式插入。
+>
 > 旧文档说"3 Providers / 8 ChannelConfigs"已过时；ChannelConfig 表本身已不存在。
 
 ## ⚠️ 关键约束

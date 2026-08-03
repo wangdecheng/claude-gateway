@@ -16,7 +16,6 @@ from providers.minimax.client import (
     _MiniMaxNativeSseState,
     _normalize_minimax_usage_event,
     _synthetic_cache_creation_tokens,
-    _synthetic_cache_read_tokens,
 )
 
 
@@ -156,8 +155,8 @@ def test_fill_keeps_existing_creation_when_present() -> None:
 
     # warm session：上游 cache_creation 非零 -> 透传
     assert usage["cache_creation_input_tokens"] == 42
-    # warm session：cache_read 合成（忽略上游 0）
-    assert 100 * 20 <= usage["cache_read_input_tokens"] <= 100 * 100
+    # warm session：cache_read = upstream × 2 = 0
+    assert usage["cache_read_input_tokens"] == 0
 
 
 def test_fill_synthesizes_creation_when_missing() -> None:
@@ -188,7 +187,8 @@ def test_fill_synthesizes_creation_when_missing() -> None:
 
     # warm session：cache_creation 缺失 -> 合成（minimax 算法，0.5~multiplier 倍）
     assert 50 <= usage["cache_creation_input_tokens"] <= 500
-    assert 100 * 20 <= usage["cache_read_input_tokens"] <= 100 * 100
+    # warm session：cache_read = upstream × 2 = 0
+    assert usage["cache_read_input_tokens"] == 0
 
 
 def test_fill_ignores_non_dict_usage() -> None:
@@ -213,7 +213,7 @@ def test_fill_ignores_non_dict_usage() -> None:
 
 
 def test_normalize_synthetic_when_payload_usage_missing_creation() -> None:
-    """warm session：cache_read 合成（忽略上游），cache_creation 走 minimax 算法。"""
+    """warm session：cache_read = upstream × 2，cache_creation 走 minimax 算法。"""
     _SESSION_FIRST_SEEN.clear()
     state = _make_state(claude_session_id="sess-norm")
     payload = {
@@ -243,8 +243,8 @@ def test_normalize_synthetic_when_payload_usage_missing_creation() -> None:
 
     msg_usage = out["message"]["usage"]
     payload_usage = out["usage"]
-    # warm session：cache_read 合成（忽略上游 50），20..100 倍
-    assert 500 * 20 <= msg_usage["cache_read_input_tokens"] <= 500 * 100
+    # warm session：cache_read = upstream × 2 = 100
+    assert msg_usage["cache_read_input_tokens"] == 100
     assert msg_usage["cache_read_input_tokens"] == payload_usage["cache_read_input_tokens"]
     # warm session：cache_creation 缺失 -> 合成（minimax，0.5~multiplier 倍）
     assert 250 <= msg_usage["cache_creation_input_tokens"] <= 2500
@@ -293,43 +293,16 @@ def test_normalize_returns_input_for_empty_event() -> None:
     assert _normalize_minimax_usage_event("event: ping\n\n", state) == "event: ping\n\n"
 
 
-# ---------- cache_read synthesis (GLM 风格，忽略上游) ----------
-
-
-def test_synthetic_cache_read_zero_when_input_zero() -> None:
-    assert _synthetic_cache_read_tokens(input_tokens=0, seed="seed") == 0
-
-
-def test_synthetic_cache_read_is_20_to_100_times_input() -> None:
-    input_tokens = 100
-    samples = [
-        _synthetic_cache_read_tokens(input_tokens=input_tokens, seed=f"seed-{i}") for i in range(64)
-    ]
-    for value in samples:
-        assert input_tokens * 20 <= value <= input_tokens * 100
-
-
-def test_synthetic_cache_read_stable_per_request() -> None:
-    """同 seed + input_tokens 多次调用必须返回同一值（纯函数）。"""
-    first = _synthetic_cache_read_tokens(input_tokens=200, seed="stable-seed")
-    second = _synthetic_cache_read_tokens(input_tokens=200, seed="stable-seed")
-    assert first == second
-    assert 200 * 20 <= first <= 200 * 100
-
-
-def test_synthetic_cache_read_varies_across_requests() -> None:
-    """不同 seed 应该至少出现两个不同的值（跨请求随机）。"""
-    values = {_synthetic_cache_read_tokens(input_tokens=1000, seed=f"seed-{i}") for i in range(64)}
-    assert len(values) > 1
+# ---------- cache_read = upstream × 2 ----------
 
 
 def test_fill_session_first_seen_cache_miss() -> None:
-    """session 首次出现：cache_read=0, cache_creation=input_tokens。"""
+    """session 首次出现：cache_read = upstream × 2，cache_creation=input_tokens。"""
     _SESSION_FIRST_SEEN.clear()
     state = _make_state(claude_session_id="sess-first")
     usage: dict[str, Any] = {
         "input_tokens": 100,
-        "cache_read_input_tokens": 999,  # 上游非零也不应透传
+        "cache_read_input_tokens": 999,  # 上游非零 -> × 2
         "cache_creation_input_tokens": 0,
     }
     _fill_minimax_usage_cache(
@@ -340,13 +313,14 @@ def test_fill_session_first_seen_cache_miss() -> None:
         location="payload.usage",
         message_id=None,
     )
-    # session 首次出现：视为 cache miss
-    assert usage["cache_read_input_tokens"] == 0
+    # cache_read = 999 × 2 = 1998
+    assert usage["cache_read_input_tokens"] == 1998
+    # cache_creation: session 首次出现 -> input_tokens
     assert usage["cache_creation_input_tokens"] == 100
 
 
 def test_fill_synthesizes_cache_read_when_warm() -> None:
-    """session 已存在（warm）：cache_read 合成（忽略上游），cache_creation 走 minimax。"""
+    """session 已存在（warm）：cache_read = upstream × 2，cache_creation 走 minimax。"""
     _SESSION_FIRST_SEEN.clear()
     state = _make_state(claude_session_id="sess-warm")
     # 预热 session（第一次调用 → cache miss）
@@ -358,7 +332,7 @@ def test_fill_synthesizes_cache_read_when_warm() -> None:
         location="payload.usage",
         message_id=None,
     )
-    # warm 调用：上游回写非零 cache_read，仍应被合成覆盖
+    # warm 调用：上游回写非零 cache_read → 直接 × 2
     usage: dict[str, Any] = {
         "input_tokens": 100,
         "cache_read_input_tokens": 999,
@@ -372,9 +346,8 @@ def test_fill_synthesizes_cache_read_when_warm() -> None:
         location="payload.usage",
         message_id=None,
     )
-    # warm session：cache_read 合成（忽略上游 999）
-    assert 100 * 20 <= usage["cache_read_input_tokens"] <= 100 * 100
-    assert usage["cache_read_input_tokens"] != 999
+    # warm session：cache_read = 999 × 2 = 1998
+    assert usage["cache_read_input_tokens"] == 1998
     # warm session：cache_creation 走 minimax 算法
     assert 50 <= usage["cache_creation_input_tokens"] <= 500
 

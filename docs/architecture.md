@@ -24,13 +24,14 @@
                     ┌───────────────────┴──────────────────┐
                     │       providers/ (plugin layer)      │
                     │  DeepSeekProvider / GlmProvider /     │
-                    │  MiniMaxProvider                       │
+                    │  MiniMaxProvider / VolcengineProvider │
                     │  (all via AnthropicMessagesTransport) │
                     └───────────────────┬──────────────────┘
                                         │
-              ┌─────────────────────────┼─────────────────────────┐
-              ▼                         ▼                         ▼
-     api.deepseek.com/anthropic  api.minimaxi.com/anthropic   cn.morbuke.com
+              ┌─────────────────────────┼─────────────────────────┬─────────────────────────┐
+              ▼                         ▼                         ▼                         ▼
+     api.deepseek.com/anthropic  api.minimaxi.com/anthropic   cn.morbuke.com       ark.cn-beijing.volces.com
+                                                                                            /anthropic
                                                         │
                                           pending_billings (queue)
                                                         │
@@ -52,7 +53,12 @@ backend/
 │   ├── model_router.py          # Model->Provider resolution (DB-backed)
 │   ├── dependencies.py          # get_db, get_provider_registry, require_api_key
 │   ├── validation_log.py        # Request validation error logging
-│   └── routers/                 # (commerce + admin routers live in app/routers)
+│   ├── admin_*.py               # Admin config / routes / urls / static (lifespan helpers)
+│   ├── detection.py / command_utils.py / gateway_model_ids.py
+│   │                            # Misc helpers (admin detection, model id resolution)
+│   ├── optimization_handlers.py # Optimization-related endpoints
+│   ├── web_server_tools.py / web_tools/  # Server-side web tooling
+│   └── models/                  # Pydantic protocol primitives (anthropic/)
 ├── app/                         # Commerce layer
 │   ├── database.py              # Base, engine/session factory
 │   ├── dependencies.py          # JWT auth dependency (cookie), admin check
@@ -94,8 +100,9 @@ backend/
 │   ├── exceptions.py            # ProviderError hierarchy
 │   ├── defaults.py / model_listing.py
 │   ├── deepseek/                # DeepSeek adapter (api.deepseek.com/anthropic)
-│   ├── glm/                     # GLM adapter (cn.morbuke.com) [was xunfei]
-│   └── minimax/                 # MiniMax adapter (api.minimaxi.com/anthropic)
+│   ├── glm/                     # GLM adapter (cn.morbuke.com)
+│   ├── minimax/                 # MiniMax adapter (api.minimaxi.com/anthropic)
+│   └── volcengine/              # Volcengine adapter (ark.cn-beijing.volces.com/anthropic)
 ├── core/                        # Low-level protocol primitives
 │   ├── trace.py                 # Request tracing with session ID
 │   ├── rate_limiting.py         # Rate limit token bucket
@@ -237,7 +244,7 @@ Each SSE chunk is rewritten before being forwarded to the client:
 
 2. **Async billing (pending + worker), NOT pre-reserve**: The request path does **no balance reservation** — only a ¥0.10 pre-flight check. After streaming, a `pending_billings` row is written; a background `BillingWorker` (in-process asyncio task, scans every 30s) settles each row in its own short transaction. This decouples streaming latency from settlement and gives a retry/dead-letter path. Multi-worker safety via `FOR UPDATE SKIP LOCKED`. `pending_billings.request_id` UNIQUE + `billing_records.request_log_id` UNIQUE together prevent double-charging. The worker only claims rows older than 5s to avoid racing an in-flight `finally` write.
 
-3. **Provider plugin system**: `BaseProvider` ABC with `stream_response()`, `list_model_ids()`, `preflight_stream()`, `cleanup()`. Factory registry keyed by `provider_id` (`deepseek` / `glm` / `minimax`), instances cached by `(provider_id, sha256(api_key)[:16])`. All three providers use the `anthropic_messages` transport. New providers added by implementing the ABC + registering a factory + a `ProviderDescriptor` in `config/provider_catalog.py`.
+3. **Provider plugin system**: `BaseProvider` ABC with `stream_response()`, `list_model_ids()`, `preflight_stream()`, `cleanup()`. Factory registry keyed by `provider_id` (`deepseek` / `glm` / `minimax` / `volcengine`), instances cached by `(provider_id, sha256(api_key)[:16])`. All four providers use the `anthropic_messages` transport. New providers added by implementing the ABC + registering a factory + a `ProviderDescriptor` in `config/provider_catalog.py`.
 
 4. **Token coefficient (discount) layer**: `TokenCoefficientService` loads global + per-model coefficients at startup and applies them both at billing time (`apply_coefficient`) and in-flight on the SSE stream, so client-reported usage matches billed usage.
 

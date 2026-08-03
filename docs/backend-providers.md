@@ -10,6 +10,7 @@
 | DeepSeek 适配器 | `backend/providers/deepseek/client.py` |
 | GLM 适配器 | `backend/providers/glm/client.py` |
 | MiniMax 适配器 | `backend/providers/minimax/client.py` |
+| Volcengine 适配器 | `backend/providers/volcengine/client.py` |
 | 速率限制器 | `backend/providers/rate_limit.py` |
 | 错误映射 | `backend/providers/error_mapping.py` |
 | Provider 异常 | `backend/providers/exceptions.py` |
@@ -48,15 +49,15 @@
 │  - 原生 Anthropic SSE 流解析                 │
 │  - /v1/models 端点查询模型列表               │
 │  - 上游错误响应保真 / 响应式流关闭            │
-└──────┬───────────────┬──────────────┬───────┘
-       ▼               ▼              ▼
-  DeepSeekProvider  GlmProvider   MiniMaxProvider
-  api.deepseek.com  cn.morbuke.com  api.minimaxi.com
-  /anthropic                         /anthropic
+└──────┬───────────────┬──────────────┬──────────────┬───────┘
+       ▼               ▼              ▼              ▼
+  DeepSeekProvider  GlmProvider   MiniMaxProvider  VolcengineProvider
+  api.deepseek.com  cn.morbuke.com  api.minimaxi.com  ark.cn-beijing.volces.com
+  /anthropic                         /anthropic       /anthropic
   (均走 Authorization Bearer，均 native Anthropic)
 ```
 
-> 三家 provider 全部继承 `AnthropicMessagesTransport`（原生 Anthropic 兼容），差异在于：模型名回写、usage 合成、缓存 token 计算。
+> 四家 provider 全部继承 `AnthropicMessagesTransport`（原生 Anthropic 兼容），差异在于：模型名回写、usage 合成、缓存 token 计算。
 
 ## 核心接口
 
@@ -113,6 +114,7 @@ class ProviderConfig(BaseModel):
     log_deepseek_usage: bool = False
     log_minimax_usage: bool = False
     log_glm_usage: bool = False
+    log_volcengine_usage: bool = False
     log_api_error_tracebacks: bool = False
 ```
 
@@ -145,9 +147,10 @@ provider = registry.get(                      # ⚠️ 同步方法，无需 awa
 工厂表：
 ```python
 PROVIDER_FACTORIES = {
-    "deepseek": _create_deepseek,   # 传 deepseek_cache_creation_max_input_multiplier
-    "minimax":   _create_minimax,   # 传 minimax_cache_creation_max_input_multiplier
-    "glm":       _create_glm,       # 传 glm_cache_creation_max_input_multiplier
+    "deepseek":   _create_deepseek,    # 传 deepseek_cache_creation_max_input_multiplier
+    "minimax":    _create_minimax,     # 传 minimax_cache_creation_max_input_multiplier
+    "glm":        _create_glm,         # 传 glm_cache_creation_max_input_multiplier
+    "volcengine": _create_volcengine,  # 传 volcengine_cache_creation_max_input_multiplier
 }
 ```
 
@@ -193,13 +196,14 @@ provider_max_concurrency = 5  # 最多 5 并发
 
 | 条件 | cache_read | cache_creation |
 |------|-----------|----------------|
-| 上游非零 | 透传 upstream | 透传 upstream |
+| 上游非零 | 透传 upstream（落入 `(input*2, input*20)` 时上调到 `input*(20..50)`） | 透传 upstream |
 | session 首次出现 (15min TTL 内首次) | `0` | `input_tokens` |
-| 已有 session (TTL 内再次) | `input × (20..100)` | minimax 算法 |
+| 已有 session (TTL 内再次) | `input × (20..50)` | minimax 算法 |
 
 - **session 首次出现判定**：`_check_session_first_seen(session_id)` 用进程内 dict `_SESSION_FIRST_SEEN`（key=session_id, value=首次时间戳），15min TTL，过期后重新视为首次（cache miss）。`session_id` 取自 Claude Code 请求头。
-- **合成 cache_read**：`_synthetic_cache_read_tokens` = `input_tokens × (20..100)`（blake2s seed 取 20..100 含 100）。pure function。
+- **合成 cache_read**：`_synthetic_cache_read_tokens` = `input_tokens × (20..50)`（blake2s seed 取 20..50 含 50）。pure function。
 - **合成 cache_creation**：`_synthetic_cache_creation_tokens` 复用 minimax 算法（`low = input×0.5`，`high = input×max_multiplier`，blake2s seed 取区间值）。
+- **上游 cache_read 归一化**：GLM 上游偶尔回写异常偏小的 cache_read（介于 2~20 倍输入之间），`_maybe_rewrite_upstream_cache_read` 检测到 `(input*2, input*20)` 区间内时会按 blake2s seed 重写为 `input*(20..50)`，避免 Claude Code 按真实小值计费。
 - **seed**：由 `event_name` + `message.id` 拼接，保证同请求内一致、跨请求随机。
 
 **模型名回写**：GLM 上游 `message_start` 会回写自己的模型名（如 `glm-5.2`），`_normalize_glm_usage_event` 据此改写回 `state.original_model`（用户最初请求的 Claude 模型名），否则 Claude Code 会按错误模型判断能力/计费。proxy 的 `_remap_model` 也会在 SSE chunk 文本里替换。
@@ -207,6 +211,13 @@ provider_max_concurrency = 5  # 最多 5 并发
 **客户端视角**：客户端永远只看到 `claude-opus-4-8`，看不到 `glm-5.2`。
 
 **Token 折扣**：`TokenCoefficientConfig` 按 model 级配置（`tcs.get_for_model(model.id)`），与 provider 渠道无关。GLM 走 `claude-opus-4-8` 自动继承其系数。系数作用于 input/cache_creation/output，**cache_read 不打折**（透传上游原值）。
+
+### Volcengine (火山方舟 / ark)
+- Base URL: `https://ark.cn-beijing.volces.com/anthropic`，provider_id `volcengine`
+- 原生 Anthropic 兼容，`Authorization: Bearer`
+- Channel `providerModelId`: 例如火山方舟控制台上的端点 ID（如 `doubao-pro-...`）
+- 调试日志: `LOG_VOLCENGINE_USAGE=true`
+- 当前无 usage 合成需求（上游原生返回 cache 字段），继承 `AnthropicMessagesTransport` 默认行为即可
 
 ## 新增 Provider 步骤
 
@@ -242,9 +253,11 @@ class XxxProvider(AnthropicMessagesTransport):
 def _create_xxx(config, settings):
     return XxxProvider(config, cache_creation_max_input_multiplier=settings.xxx_cache_creation_max_input_multiplier)
 
-PROVIDER_FACTORIES = {"deepseek": ..., "minimax": ..., "glm": ..., "xxx": _create_xxx}
+PROVIDER_FACTORIES = {
+    "deepseek": ..., "minimax": ..., "glm": ..., "volcengine": ..., "xxx": _create_xxx
+}
 ```
-（并在 `config/settings.py` 加 `xxx_cache_creation_max_input_multiplier` 等配置项）
+（并在 `config/settings.py` 加 `xxx_cache_creation_max_input_multiplier` 与 `log_xxx_usage` 等配置项）
 
 ### 4. 前端 / Admin
 - Admin providers 页可填入该 provider，`adapter` 选 `anthropic-messages`

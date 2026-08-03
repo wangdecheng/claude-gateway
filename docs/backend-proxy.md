@@ -63,7 +63,7 @@
 7. Provider 实例
    registry.get(provider_id, api_key=upstream_key, base_url=...)
      -> 按 (provider_id, sha256(api_key)[:16]) 缓存
-     -> DeepSeekProvider / GlmProvider / MiniMaxProvider
+     -> DeepSeekProvider / GlmProvider / MiniMaxProvider / VolcengineProvider
 
 8. 释放请求事务
    db.commit()  <-- 在开流式前释放请求级事务

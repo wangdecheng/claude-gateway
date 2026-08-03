@@ -72,6 +72,23 @@ async def test_something(client):
     assert "access_token" in data  # 或其他断言
 ```
 
+### 当前后端测试文件 (`backend/tests/`)
+
+| 文件 | 测试内容 |
+|------|----------|
+| `test_app_startup.py` | 应用启动 / 健康检查 |
+| `test_api_auth_compat.py` | `/api/*` 与 `/v1/*` 鉴权兼容 |
+| `test_api_key_model.py` / `test_api_key_schemas.py` / `test_update_api_key.py` | API Key 模型/Schema/更新 |
+| `test_anthropic_upstream_error_contract.py` | 上游错误响应保真（`401/403 -> 502`、超时 `504` 等） |
+| `test_proxy_routing_compat.py` / `test_proxy_response_with_coefficient.py` / `test_proxy_usage_extraction.py` | 代理路由 / 系数应用 / usage 抓取 |
+| `test_provider_imports.py` / `test_provider_registry.py` / `test_provider_key_encryption.py` / `test_providers_schema.py` | Provider 注册、密钥加密、Schema |
+| `test_model_providers_schema.py` / `test_user_channel_schema.py` | ModelProviderRoute / User↔channel Schema |
+| `test_glm_cache_creation.py` / `test_minimax_cache_creation.py` | GLM / MiniMax cache 合成算法 |
+| `test_volcengine_provider.py` | Volcengine provider 注册 + catalog |
+| `test_admin_delete.py` / `test_admin_provider_dropdown.py` / `test_admin_redemption.py` / `test_admin_token_coefficients_router.py` / `test_admin_users.py` | Admin CRUD |
+| `test_public_url.py` | 公网 URL 工具函数 |
+| `integration/` `services/` `scripts/` | 集成测试 / 服务层 / 脚本 |
+
 ### ⚠️ backend-old 中的测试
 `backend-old/tests/` 有 18 个测试文件覆盖完整业务逻辑，可作为新测试的参考:
 - `test_auth.py` — 注册、登录、鉴权
@@ -100,7 +117,7 @@ npm run test:watch          # vitest (监听模式)
 - **配置**: `vitest.config.ts` 含 `globals: true`, `@vitejs/plugin-react`
 - **位置**: `frontend/tests/`
 
-### 当前测试文件 (9个)
+### 当前测试文件 (`frontend/tests/`)
 
 | 文件 | 测试内容 |
 |------|----------|
@@ -111,8 +128,12 @@ npm run test:watch          # vitest (监听模式)
 | `components/KeyList.test.tsx` | Loading/空/key 列表状态 |
 | `components/ModelCard.test.tsx` | 模型卡片渲染、channel 切换 |
 | `components/ChangePasswordForm.test.tsx` | 表单渲染、提交 |
+| `components/Dialog.test.tsx` | Radix Dialog 行为 |
+| `components/ProviderEditForm.test.tsx` | Provider 编辑表单 |
 | `lib/AuthContext.test.tsx` | AuthContext 状态转换 |
 | `lib/Usage.test.tsx` | useUsageStats/useUsageHistory hooks |
+| `lib/AdminUsers.test.tsx` | Admin 用户管理 hook |
+| `app/` `hooks/` | 页面级 / 自定义 hook 测试 |
 
 ### 编写前端测试的模式
 

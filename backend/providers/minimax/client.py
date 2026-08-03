@@ -1,9 +1,11 @@
 """MiniMax provider implementation (native Anthropic-compatible Messages).
 
-上游 SSE usage 中 cache_read/cache_creation 不可靠，本文件实现合成:
-- session 首次出现（15min TTL）：cache_read=0, cache_creation=input_tokens
-- 已有 session 时：cache_read = input_tokens × (20..100) 倍（忽略上游）
-- 已有 session 时：cache_creation 沿用 minimax 算法（上游非零则透传）
+上游 SSE usage 处理:
+- cache_read: 直接信任上游值，× 2 安全系数（不再合成）
+- cache_creation:
+    - 上游非零 -> 透传
+    - session 首次出现 (15min TTL): cache_creation = input_tokens
+    - 其余 -> minimax 算法合成
 """
 
 from __future__ import annotations
@@ -74,19 +76,6 @@ class _SyntheticCacheCreationResult:
 
 def _usage_int(value: Any) -> int:
     return value if isinstance(value, int) and value >= 0 else 0
-
-
-def _synthetic_cache_read_tokens(
-    *,
-    input_tokens: int,
-    seed: str,
-) -> int:
-    """合成 cache_read_input_tokens = input_tokens × (20..100) 倍（pure function）。"""
-    if input_tokens <= 0:
-        return 0
-    digest = hashlib.blake2s(seed.encode("utf-8"), digest_size=8).digest()
-    multiplier = 20 + (int.from_bytes(digest, "big") % 81)  # 20..100 含 100
-    return input_tokens * multiplier
 
 
 def _synthetic_cache_creation_tokens(
@@ -162,22 +151,19 @@ def _fill_minimax_usage_cache(
     location: str,
     message_id: str | None,
 ) -> None:
-    """填充 SSE usage 字段：session 首次出现时 cache_read=0/cache_creation=input_tokens；
-    已有 session 时合成 cache_read（忽略上游）且 cache_creation 走 minimax 算法。"""
+    """填充 SSE usage 字段：cache_read = upstream × 2；
+    cache_creation 三分支（透传 / session首次 / 合成）。"""
     if not isinstance(usage, dict):
         return
 
     input_tokens = _usage_int(usage.get("input_tokens"))
+    upstream_cache_read = _usage_int(usage.get("cache_read_input_tokens"))
     upstream_cache_creation = _usage_int(usage.get("cache_creation_input_tokens"))
 
     session_first_seen = _check_session_first_seen(state.claude_session_id)
 
-    # 1. cache_read：全部合成，忽略上游（与 GLM 不同，无透传/重写层）；
-    #    session 首次出现 -> 0；其余 -> 合成
-    if session_first_seen:
-        cache_read = 0
-    else:
-        cache_read = _synthetic_cache_read_tokens(input_tokens=input_tokens, seed=seed)
+    # 1. cache_read：信任上游，× 2 安全系数（GLM 风格全合成，这里只 × 2）
+    cache_read = upstream_cache_read * 2
 
     # 2. cache_creation：上游非零 -> 透传；session 首次出现 -> input_tokens；其余 -> minimax
     if upstream_cache_creation > 0:
