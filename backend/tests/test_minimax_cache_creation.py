@@ -155,7 +155,7 @@ def test_fill_keeps_existing_creation_when_present() -> None:
 
     # warm session：上游 cache_creation 非零 -> 透传
     assert usage["cache_creation_input_tokens"] == 42
-    # warm session：cache_read = upstream × 2 = 0
+    # warm session：cache_read = upstream × 5 = 0
     assert usage["cache_read_input_tokens"] == 0
 
 
@@ -187,7 +187,7 @@ def test_fill_synthesizes_creation_when_missing() -> None:
 
     # warm session：cache_creation 缺失 -> 合成（minimax 算法，0.5~multiplier 倍）
     assert 50 <= usage["cache_creation_input_tokens"] <= 500
-    # warm session：cache_read = upstream × 2 = 0
+    # warm session：cache_read = upstream × 5 = 0
     assert usage["cache_read_input_tokens"] == 0
 
 
@@ -213,7 +213,7 @@ def test_fill_ignores_non_dict_usage() -> None:
 
 
 def test_normalize_synthetic_when_payload_usage_missing_creation() -> None:
-    """warm session：cache_read = upstream × 2，cache_creation 走 minimax 算法。"""
+    """warm session：cache_read = upstream × 5，cache_creation 走 minimax 算法。"""
     _SESSION_FIRST_SEEN.clear()
     state = _make_state(claude_session_id="sess-norm")
     payload = {
@@ -243,8 +243,8 @@ def test_normalize_synthetic_when_payload_usage_missing_creation() -> None:
 
     msg_usage = out["message"]["usage"]
     payload_usage = out["usage"]
-    # warm session：cache_read = upstream × 2 = 100
-    assert msg_usage["cache_read_input_tokens"] == 100
+    # warm session：cache_read = upstream × 5 = 250
+    assert msg_usage["cache_read_input_tokens"] == 250
     assert msg_usage["cache_read_input_tokens"] == payload_usage["cache_read_input_tokens"]
     # warm session：cache_creation 缺失 -> 合成（minimax，0.5~multiplier 倍）
     assert 250 <= msg_usage["cache_creation_input_tokens"] <= 2500
@@ -293,16 +293,16 @@ def test_normalize_returns_input_for_empty_event() -> None:
     assert _normalize_minimax_usage_event("event: ping\n\n", state) == "event: ping\n\n"
 
 
-# ---------- cache_read = upstream × 2 ----------
+# ---------- cache_read = upstream × 5 ----------
 
 
 def test_fill_session_first_seen_cache_miss() -> None:
-    """session 首次出现：cache_read = upstream × 2，cache_creation=input_tokens。"""
+    """session 首次出现：cache_read = upstream × 5，cache_creation=input_tokens。"""
     _SESSION_FIRST_SEEN.clear()
     state = _make_state(claude_session_id="sess-first")
     usage: dict[str, Any] = {
         "input_tokens": 100,
-        "cache_read_input_tokens": 999,  # 上游非零 -> × 2
+        "cache_read_input_tokens": 999,  # 上游非零 -> × 5
         "cache_creation_input_tokens": 0,
     }
     _fill_minimax_usage_cache(
@@ -313,14 +313,14 @@ def test_fill_session_first_seen_cache_miss() -> None:
         location="payload.usage",
         message_id=None,
     )
-    # cache_read = 999 × 2 = 1998
-    assert usage["cache_read_input_tokens"] == 1998
+    # cache_read = 999 × 5 = 4995
+    assert usage["cache_read_input_tokens"] == 4995
     # cache_creation: session 首次出现 -> input_tokens
     assert usage["cache_creation_input_tokens"] == 100
 
 
 def test_fill_synthesizes_cache_read_when_warm() -> None:
-    """session 已存在（warm）：cache_read = upstream × 2，cache_creation 走 minimax。"""
+    """session 已存在（warm）：cache_read = upstream × 5，cache_creation 走 minimax。"""
     _SESSION_FIRST_SEEN.clear()
     state = _make_state(claude_session_id="sess-warm")
     # 预热 session（第一次调用 → cache miss）
@@ -332,7 +332,7 @@ def test_fill_synthesizes_cache_read_when_warm() -> None:
         location="payload.usage",
         message_id=None,
     )
-    # warm 调用：上游回写非零 cache_read → 直接 × 2
+    # warm 调用：上游回写非零 cache_read → 直接 × 5
     usage: dict[str, Any] = {
         "input_tokens": 100,
         "cache_read_input_tokens": 999,
@@ -346,8 +346,8 @@ def test_fill_synthesizes_cache_read_when_warm() -> None:
         location="payload.usage",
         message_id=None,
     )
-    # warm session：cache_read = 999 × 2 = 1998
-    assert usage["cache_read_input_tokens"] == 1998
+    # warm session：cache_read = 999 × 5 = 4995
+    assert usage["cache_read_input_tokens"] == 4995
     # warm session：cache_creation 走 minimax 算法
     assert 50 <= usage["cache_creation_input_tokens"] <= 500
 

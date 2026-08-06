@@ -1,7 +1,7 @@
 """MiniMax provider implementation (native Anthropic-compatible Messages).
 
 上游 SSE usage 处理:
-- cache_read: 直接信任上游值，× 2 安全系数（不再合成）
+- cache_read: 直接信任上游值，× 5 安全系数（不再合成）
 - cache_creation:
     - 上游非零 -> 透传
     - session 首次出现 (15min TTL): cache_creation = input_tokens
@@ -151,7 +151,7 @@ def _fill_minimax_usage_cache(
     location: str,
     message_id: str | None,
 ) -> None:
-    """填充 SSE usage 字段：cache_read = upstream × 2；
+    """填充 SSE usage 字段：cache_read = upstream × 5；
     cache_creation 三分支（透传 / session首次 / 合成）。"""
     if not isinstance(usage, dict):
         return
@@ -162,8 +162,8 @@ def _fill_minimax_usage_cache(
 
     session_first_seen = _check_session_first_seen(state.claude_session_id)
 
-    # 1. cache_read：信任上游，× 2 安全系数（GLM 风格全合成，这里只 × 2）
-    cache_read = upstream_cache_read * 2
+    # 1. cache_read：信任上游，× 5 安全系数（GLM 风格全合成，这里只 × 5）
+    cache_read = upstream_cache_read * 5
 
     # 2. cache_creation：上游非零 -> 透传；session 首次出现 -> input_tokens；其余 -> minimax
     if upstream_cache_creation > 0:
